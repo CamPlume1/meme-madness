@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from app.auth import get_current_user
+from app.auth import get_current_user, require_tournament_member
 from app.supabase_client import supabase_admin
 
 router = APIRouter()
@@ -7,15 +7,8 @@ router = APIRouter()
 
 @router.get("/list")
 async def list_tournaments(user: dict = Depends(get_current_user)):
-    """List all tournaments, annotated with the requesting user's role."""
-    tournaments = (
-        supabase_admin.table("tournament")
-        .select("*")
-        .order("created_at", desc=True)
-        .execute()
-    ).data
-
-    # Get user's admin memberships
+    """List tournaments the user is a member or admin of."""
+    # Get user's admin roles
     admin_roles = (
         supabase_admin.table("tournament_admins")
         .select("tournament_id, role")
@@ -24,15 +17,37 @@ async def list_tournaments(user: dict = Depends(get_current_user)):
     ).data
     admin_map = {r["tournament_id"]: r["role"] for r in admin_roles}
 
+    # Get user's memberships
+    member_rows = (
+        supabase_admin.table("tournament_members")
+        .select("tournament_id")
+        .eq("user_id", user["id"])
+        .execute()
+    ).data
+    member_ids = {r["tournament_id"] for r in member_rows}
+
+    # Union of all tournament IDs the user can see
+    visible_ids = list(set(admin_map.keys()) | member_ids)
+    if not visible_ids:
+        return []
+
+    tournaments = (
+        supabase_admin.table("tournament")
+        .select("*")
+        .in_("id", visible_ids)
+        .order("created_at", desc=True)
+        .execute()
+    ).data
+
     for t in tournaments:
-        t["user_role"] = admin_map.get(t["id"])
+        t["user_role"] = admin_map.get(t["id"], "member" if t["id"] in member_ids else None)
 
     return tournaments
 
 
 @router.get("/{tournament_id}")
-async def get_tournament(tournament_id: str, user: dict = Depends(get_current_user)):
-    """Get a specific tournament, including the user's role."""
+async def get_tournament(tournament_id: str, user: dict = Depends(require_tournament_member)):
+    """Get a specific tournament. Requires membership."""
     result = (
         supabase_admin.table("tournament")
         .select("*")
@@ -44,23 +59,12 @@ async def get_tournament(tournament_id: str, user: dict = Depends(get_current_us
         raise HTTPException(status_code=404, detail="Tournament not found")
 
     t = result.data
-
-    # Check user's role
-    admin_row = (
-        supabase_admin.table("tournament_admins")
-        .select("role")
-        .eq("tournament_id", tournament_id)
-        .eq("user_id", user["id"])
-        .maybe_single()
-        .execute()
-    )
-    t["user_role"] = admin_row.data["role"] if admin_row.data else None
-
+    t["user_role"] = user.get("tournament_role")
     return t
 
 
 @router.get("/{tournament_id}/rounds")
-async def get_rounds(tournament_id: str, user: dict = Depends(get_current_user)):
+async def get_rounds(tournament_id: str, user: dict = Depends(require_tournament_member)):
     """Get all rounds for a tournament."""
     rounds = (
         supabase_admin.table("rounds")
@@ -76,7 +80,7 @@ async def get_rounds(tournament_id: str, user: dict = Depends(get_current_user))
 async def get_round_matchups(
     tournament_id: str,
     round_number: int,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(require_tournament_member),
     offset: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
 ):
@@ -135,7 +139,7 @@ async def get_round_matchups(
 
 
 @router.get("/{tournament_id}/bracket")
-async def get_bracket(tournament_id: str, user: dict = Depends(get_current_user)):
+async def get_bracket(tournament_id: str, user: dict = Depends(require_tournament_member)):
     """Get the full bracket structure for a tournament."""
     t_result = (
         supabase_admin.table("tournament")

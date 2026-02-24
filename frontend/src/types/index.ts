@@ -22,7 +22,8 @@ export interface Tournament {
   total_rounds: number | null;
   created_at: string;
   created_by?: string;
-  user_role?: 'owner' | 'admin' | null;
+  user_role?: 'owner' | 'admin' | 'member' | null;
+  join_code?: string;
 }
 
 export interface Round {
@@ -89,4 +90,18 @@ export interface AdminDashboard {
     pending: number;
   } | null;
   rounds: Round[];
+}
+
+export interface TournamentMember {
+  id: string;
+  tournament_id: string;
+  user_id: string;
+  joined_at: string;
+  profiles?: { display_name: string; email: string };
+}
+
+export interface JoinResult {
+  tournament_id: string;
+  name: string;
+  already_member: boolean;
 }

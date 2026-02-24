@@ -28,14 +28,16 @@ def _fake_user(user_id="user-1", email="alice@example.com"):
 
 @pytest.fixture
 def authed_client():
-    """Client with auth bypassed."""
+    """Client with auth bypassed as a tournament member."""
     user = _fake_user()
+    user["tournament_role"] = "member"
 
     async def override(request=None):
         return user
 
-    from app.auth import get_current_user
+    from app.auth import get_current_user, require_tournament_member
     app.dependency_overrides[get_current_user] = override
+    app.dependency_overrides[require_tournament_member] = override
     client = TestClient(app)
     yield client, user
     app.dependency_overrides.clear()
@@ -53,9 +55,10 @@ def admin_client():
     async def override_admin(request=None):
         return user
 
-    from app.auth import get_current_user, require_tournament_admin
+    from app.auth import get_current_user, require_tournament_admin, require_tournament_member
     app.dependency_overrides[get_current_user] = override_user
     app.dependency_overrides[require_tournament_admin] = override_admin
+    app.dependency_overrides[require_tournament_member] = override_admin
     client = TestClient(app)
     yield client, user
     app.dependency_overrides.clear()
@@ -66,8 +69,9 @@ def admin_client():
 # ============================================================================
 
 class TestMemeUploadScoping:
+    @patch("app.routes.memes.verify_membership")
     @patch("app.routes.memes.supabase_admin")
-    def test_meme_limit_scoped_to_tournament(self, mock_sb, authed_client):
+    def test_meme_limit_scoped_to_tournament(self, mock_sb, mock_verify, authed_client):
         """User at 2-meme limit in tournament A should still be able to submit to tournament B."""
         client, user = authed_client
 
@@ -115,8 +119,9 @@ class TestMemeUploadScoping:
         assert resp.status_code == 200
         assert resp.json()["tournament_id"] == "tournament-B"
 
+    @patch("app.routes.memes.verify_membership")
     @patch("app.routes.memes.supabase_admin")
-    def test_meme_limit_blocks_at_2_for_same_tournament(self, mock_sb, authed_client):
+    def test_meme_limit_blocks_at_2_for_same_tournament(self, mock_sb, mock_verify, authed_client):
         """User with 2 memes in tournament A should be blocked from submitting again to tournament A."""
         client, user = authed_client
 
@@ -195,8 +200,9 @@ class TestMemeUploadScoping:
 # ============================================================================
 
 class TestMemeListingScoping:
+    @patch("app.routes.memes.verify_membership")
     @patch("app.routes.memes.supabase_admin")
-    def test_list_memes_with_tournament_filter(self, mock_sb, authed_client):
+    def test_list_memes_with_tournament_filter(self, mock_sb, mock_verify, authed_client):
         """GET /memes?tournament_id= should filter by tournament."""
         client, _ = authed_client
 
@@ -216,8 +222,9 @@ class TestMemeListingScoping:
         assert len(result) == 1
         assert result[0]["tournament_id"] == "t-A"
 
+    @patch("app.routes.memes.verify_membership")
     @patch("app.routes.memes.supabase_admin")
-    def test_my_memes_with_tournament_filter(self, mock_sb, authed_client):
+    def test_my_memes_with_tournament_filter(self, mock_sb, mock_verify, authed_client):
         client, user = authed_client
 
         memes = [{"id": "m2", "tournament_id": "t-B", "title": "My meme", "owner_id": user["id"]}]
@@ -316,9 +323,9 @@ class TestTournamentListScoping:
         client, user = authed_client
 
         tournaments = [
-            {"id": "t-1", "name": "Tournament A", "status": "voting_open"},
-            {"id": "t-2", "name": "Tournament B", "status": "complete"},
-            {"id": "t-3", "name": "Tournament C", "status": "submission_open"},
+            {"id": "t-1", "name": "Tournament A", "status": "voting_open", "created_at": "2026-01-01T00:00:00Z"},
+            {"id": "t-2", "name": "Tournament B", "status": "complete", "created_at": "2026-01-02T00:00:00Z"},
+            {"id": "t-3", "name": "Tournament C", "status": "submission_open", "created_at": "2026-01-03T00:00:00Z"},
         ]
 
         admin_roles = [
@@ -326,17 +333,27 @@ class TestTournamentListScoping:
             {"tournament_id": "t-3", "role": "admin"},
         ]
 
+        member_rows = [
+            {"tournament_id": "t-2"},
+        ]
+
         def table_side_effect(name):
             m = MagicMock()
-            if name == "tournament":
-                chain = MagicMock()
-                chain.order.return_value = chain
-                chain.execute.return_value = _mock_response(tournaments)
-                m.select.return_value = chain
-            elif name == "tournament_admins":
+            if name == "tournament_admins":
                 chain = MagicMock()
                 chain.eq.return_value = chain
                 chain.execute.return_value = _mock_response(admin_roles)
+                m.select.return_value = chain
+            elif name == "tournament_members":
+                chain = MagicMock()
+                chain.eq.return_value = chain
+                chain.execute.return_value = _mock_response(member_rows)
+                m.select.return_value = chain
+            elif name == "tournament":
+                chain = MagicMock()
+                chain.in_.return_value = chain
+                chain.order.return_value = chain
+                chain.execute.return_value = _mock_response(tournaments)
                 m.select.return_value = chain
             return m
         mock_sb.table.side_effect = table_side_effect
@@ -348,7 +365,7 @@ class TestTournamentListScoping:
         assert len(result) == 3
         role_map = {t["id"]: t.get("user_role") for t in result}
         assert role_map["t-1"] == "owner"
-        assert role_map["t-2"] is None  # Not an admin
+        assert role_map["t-2"] == "member"
         assert role_map["t-3"] == "admin"
 
 
@@ -426,7 +443,7 @@ class TestRoundAndBracketScoping:
 
     @patch("app.routes.tournament.supabase_admin")
     def test_get_nonexistent_tournament_returns_404(self, mock_sb, authed_client):
-        """GET /tournament/{id} for nonexistent ID should return 404."""
+        """GET /tournament/{id} for nonexistent tournament returns 404 (member bypassed)."""
         client, _ = authed_client
 
         chain = MagicMock()
@@ -436,6 +453,7 @@ class TestRoundAndBracketScoping:
         mock_sb.table.return_value.select.return_value = chain
 
         resp = client.get("/api/tournament/nonexistent-id")
+        # With require_tournament_member overridden, we reach the 404 path
         assert resp.status_code == 404
 
 

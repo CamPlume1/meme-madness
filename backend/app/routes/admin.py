@@ -1,6 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from app.auth import get_current_user, require_tournament_admin
+from app.auth import get_current_user, require_tournament_admin, generate_join_code
 from app.supabase_client import supabase_admin
 from app.services.bracket import seed_bracket, generate_next_round
 
@@ -27,6 +27,7 @@ async def create_tournament(body: TournamentCreate, user: dict = Depends(get_cur
         "name": body.name,
         "status": "submission_open",
         "created_by": user["id"],
+        "join_code": generate_join_code(),
     }).execute()
 
     tournament = result.data[0]
@@ -401,4 +402,66 @@ async def remove_tournament_admin(
         "tournament_id", tournament_id
     ).eq("user_id", user_id).execute()
 
+    return {"success": True}
+
+
+# === Join code management ===
+
+@router.get("/tournament/{tournament_id}/join-code")
+async def get_join_code(
+    tournament_id: str,
+    admin: dict = Depends(require_tournament_admin),
+):
+    """Get the current join code for a tournament. Admin only."""
+    t = (
+        supabase_admin.table("tournament")
+        .select("join_code")
+        .eq("id", tournament_id)
+        .single()
+        .execute()
+    ).data
+    return {"join_code": t["join_code"]}
+
+
+@router.post("/tournament/{tournament_id}/regenerate-code")
+async def regenerate_join_code(
+    tournament_id: str,
+    admin: dict = Depends(require_tournament_admin),
+):
+    """Generate a new join code for a tournament. Admin only."""
+    new_code = generate_join_code()
+    supabase_admin.table("tournament").update({
+        "join_code": new_code,
+    }).eq("id", tournament_id).execute()
+    return {"join_code": new_code}
+
+
+# === Member management ===
+
+@router.get("/tournament/{tournament_id}/members")
+async def list_tournament_members(
+    tournament_id: str,
+    admin: dict = Depends(require_tournament_admin),
+):
+    """List all members of a tournament. Admin only."""
+    members = (
+        supabase_admin.table("tournament_members")
+        .select("*, profiles(display_name, email)")
+        .eq("tournament_id", tournament_id)
+        .order("joined_at")
+        .execute()
+    )
+    return members.data
+
+
+@router.delete("/tournament/{tournament_id}/members/{user_id}")
+async def remove_tournament_member(
+    tournament_id: str,
+    user_id: str,
+    admin: dict = Depends(require_tournament_admin),
+):
+    """Remove a member from a tournament. Admin only."""
+    supabase_admin.table("tournament_members").delete().eq(
+        "tournament_id", tournament_id
+    ).eq("user_id", user_id).execute()
     return {"success": True}

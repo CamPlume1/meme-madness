@@ -1,9 +1,31 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from app.auth import get_current_user
+from app.auth import get_current_user, verify_membership
 from app.supabase_client import supabase_admin
 
 router = APIRouter()
+
+
+async def _get_tournament_from_matchup(matchup_id: str) -> str:
+    """Resolve matchup -> round -> tournament_id."""
+    matchup = (
+        supabase_admin.table("matchups")
+        .select("round_id")
+        .eq("id", matchup_id)
+        .maybe_single()
+        .execute()
+    )
+    if not matchup.data:
+        raise HTTPException(status_code=404, detail="Matchup not found")
+
+    round_row = (
+        supabase_admin.table("rounds")
+        .select("tournament_id")
+        .eq("id", matchup.data["round_id"])
+        .single()
+        .execute()
+    )
+    return round_row.data["tournament_id"]
 
 
 class VoteRequest(BaseModel):
@@ -14,6 +36,10 @@ class VoteRequest(BaseModel):
 @router.post("/vote")
 async def cast_vote(vote: VoteRequest, user: dict = Depends(get_current_user)):
     """Cast a vote for a meme in a matchup."""
+    # Verify tournament membership
+    tournament_id = await _get_tournament_from_matchup(vote.matchup_id)
+    await verify_membership(user["id"], tournament_id)
+
     # Get the matchup
     matchup = (
         supabase_admin.table("matchups")
@@ -68,6 +94,9 @@ async def cast_vote(vote: VoteRequest, user: dict = Depends(get_current_user)):
 @router.get("/matchup/{matchup_id}/my-vote")
 async def get_my_vote(matchup_id: str, user: dict = Depends(get_current_user)):
     """Check if the current user has voted on a matchup."""
+    tournament_id = await _get_tournament_from_matchup(matchup_id)
+    await verify_membership(user["id"], tournament_id)
+
     vote = (
         supabase_admin.table("votes")
         .select("*")
@@ -82,6 +111,9 @@ async def get_my_vote(matchup_id: str, user: dict = Depends(get_current_user)):
 @router.get("/matchup/{matchup_id}/results")
 async def get_matchup_results(matchup_id: str, user: dict = Depends(get_current_user)):
     """Get vote counts for a matchup. Only returns counts if user has voted."""
+    tournament_id = await _get_tournament_from_matchup(matchup_id)
+    await verify_membership(user["id"], tournament_id)
+
     # Check if user has voted
     my_vote = (
         supabase_admin.table("votes")

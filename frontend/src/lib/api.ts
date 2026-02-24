@@ -11,6 +11,14 @@ async function getAuthHeaders(): Promise<Record<string, string>> {
   };
 }
 
+export class ApiError extends Error {
+  status: number;
+  constructor(message: string, status: number) {
+    super(message);
+    this.status = status;
+  }
+}
+
 async function apiFetch(path: string, options: RequestInit = {}) {
   const headers = await getAuthHeaders();
   const res = await fetch(`${API_BASE}${path}`, {
@@ -22,7 +30,7 @@ async function apiFetch(path: string, options: RequestInit = {}) {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ detail: res.statusText }));
-    throw new Error(err.detail || 'API error');
+    throw new ApiError(err.detail || 'API error', res.status);
   }
   return res.json();
 }
@@ -97,3 +105,23 @@ export const fetchTournamentAdmins = (tournamentId: string) =>
   apiFetch(`/admin/tournament/${tournamentId}/admins`);
 export const removeAdmin = (tournamentId: string, userId: string) =>
   apiFetch(`/admin/tournament/${tournamentId}/admins/${userId}`, { method: 'DELETE' });
+
+// Membership
+export const joinTournament = (joinCode: string) =>
+  apiFetch('/membership/join', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ join_code: joinCode }),
+  });
+
+// Admin — join code management
+export const getJoinCode = (tournamentId: string) =>
+  apiFetch(`/admin/tournament/${tournamentId}/join-code`);
+export const regenerateJoinCode = (tournamentId: string) =>
+  apiFetch(`/admin/tournament/${tournamentId}/regenerate-code`, { method: 'POST' });
+
+// Admin — member management
+export const fetchTournamentMembers = (tournamentId: string) =>
+  apiFetch(`/admin/tournament/${tournamentId}/members`);
+export const removeMember = (tournamentId: string, userId: string) =>
+  apiFetch(`/admin/tournament/${tournamentId}/members/${userId}`, { method: 'DELETE' });

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { fetchTournaments, createTournament } from '../lib/api';
+import { fetchTournaments, createTournament, joinTournament } from '../lib/api';
 import { Tournament } from '../types';
 
 export default function TournamentListPage() {
@@ -10,13 +10,20 @@ export default function TournamentListPage() {
   const [showCreate, setShowCreate] = useState(false);
   const [newName, setNewName] = useState('');
   const [error, setError] = useState('');
+  const [joinCode, setJoinCode] = useState('');
+  const [joining, setJoining] = useState(false);
+  const [joinError, setJoinError] = useState('');
   const navigate = useNavigate();
 
-  useEffect(() => {
+  const loadTournaments = () => {
     fetchTournaments()
       .then(setTournaments)
       .catch(() => {})
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadTournaments();
   }, []);
 
   const handleCreate = async (e: React.FormEvent) => {
@@ -34,6 +41,22 @@ export default function TournamentListPage() {
     }
   };
 
+  const handleJoin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!joinCode.trim()) return;
+    setJoining(true);
+    setJoinError('');
+    try {
+      const result = await joinTournament(joinCode.trim());
+      setJoinCode('');
+      navigate(`/tournament/${result.tournament_id}/bracket`);
+    } catch (err: any) {
+      setJoinError(err.message);
+    } finally {
+      setJoining(false);
+    }
+  };
+
   const active = tournaments.filter((t) => t.status !== 'complete');
   const completed = tournaments.filter((t) => t.status === 'complete');
 
@@ -41,6 +64,13 @@ export default function TournamentListPage() {
     if (t.status === 'submission_open') return `/tournament/${t.id}/submit`;
     if (t.status === 'voting_open') return `/tournament/${t.id}/vote`;
     return `/tournament/${t.id}/bracket`;
+  };
+
+  const getRoleBadge = (role?: string | null) => {
+    if (role === 'owner') return 'Owner';
+    if (role === 'admin') return 'Admin';
+    if (role === 'member') return 'Member';
+    return null;
   };
 
   if (loading) {
@@ -76,6 +106,25 @@ export default function TournamentListPage() {
         </form>
       )}
 
+      {/* Join Tournament */}
+      <div className="join-tournament-section">
+        <h3 className="section-title">Join a Tournament</h3>
+        <form className="join-tournament-form" onSubmit={handleJoin}>
+          <input
+            type="text"
+            value={joinCode}
+            onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
+            placeholder="Enter join code"
+            maxLength={8}
+            required
+          />
+          <button type="submit" className="btn btn-primary" disabled={joining}>
+            {joining ? 'Joining...' : 'Join'}
+          </button>
+        </form>
+        {joinError && <div className="error-message">{joinError}</div>}
+      </div>
+
       {active.length > 0 && (
         <>
           <h3 className="section-title">Active</h3>
@@ -94,8 +143,10 @@ export default function TournamentListPage() {
                 </div>
                 <div className="tournament-card-meta">
                   <span>{new Date(t.created_at).toLocaleDateString()}</span>
-                  {t.user_role && (
-                    <span className="role-badge">{t.user_role === 'owner' ? 'Owner' : 'Admin'}</span>
+                  {getRoleBadge(t.user_role) && (
+                    <span className={`role-badge ${t.user_role === 'member' ? 'role-member' : ''}`}>
+                      {getRoleBadge(t.user_role)}
+                    </span>
                   )}
                 </div>
               </div>
@@ -120,8 +171,10 @@ export default function TournamentListPage() {
                 </div>
                 <div className="tournament-card-meta">
                   <span>{new Date(t.created_at).toLocaleDateString()}</span>
-                  {t.user_role && (
-                    <span className="role-badge">{t.user_role === 'owner' ? 'Owner' : 'Admin'}</span>
+                  {getRoleBadge(t.user_role) && (
+                    <span className={`role-badge ${t.user_role === 'member' ? 'role-member' : ''}`}>
+                      {getRoleBadge(t.user_role)}
+                    </span>
                   )}
                   {t.total_rounds && <span>{t.total_rounds} rounds</span>}
                 </div>
@@ -133,7 +186,7 @@ export default function TournamentListPage() {
 
       {tournaments.length === 0 && (
         <div className="info-card">
-          <p>No tournaments yet. Create one to get started!</p>
+          <p>No tournaments yet. Create one or join with a code!</p>
         </div>
       )}
     </div>

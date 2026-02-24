@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
-from app.auth import get_current_user
+from app.auth import get_current_user, verify_membership
 from app.supabase_client import supabase_admin
 from app.config import SUPABASE_URL
 import uuid
@@ -15,6 +15,8 @@ async def list_memes(
     tournament_id: str = Query(None),
 ):
     """List submitted memes, optionally filtered by tournament."""
+    if tournament_id:
+        await verify_membership(user["id"], tournament_id)
     query = supabase_admin.table("memes").select("*, profiles(display_name)")
     if tournament_id:
         query = query.eq("tournament_id", tournament_id)
@@ -28,6 +30,8 @@ async def my_memes(
     tournament_id: str = Query(None),
 ):
     """List memes submitted by the current user, with tournament status."""
+    if tournament_id:
+        await verify_membership(user["id"], tournament_id)
     query = supabase_admin.table("memes").select("*").eq("owner_id", user["id"])
     if tournament_id:
         query = query.eq("tournament_id", tournament_id)
@@ -97,6 +101,9 @@ async def upload_meme(
 
     if tournament["status"] != "submission_open":
         raise HTTPException(status_code=400, detail="Submissions are not currently open")
+
+    # Verify membership
+    await verify_membership(user["id"], tournament_id)
 
     # Check meme count for THIS tournament
     count = (

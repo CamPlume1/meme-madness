@@ -9,8 +9,12 @@ import {
   inviteAdmin,
   fetchTournamentAdmins,
   removeAdmin,
+  getJoinCode,
+  regenerateJoinCode,
+  fetchTournamentMembers,
+  removeMember,
 } from '../lib/api';
-import { AdminDashboard, Matchup, Round, TournamentAdmin } from '../types';
+import { AdminDashboard, Matchup, Round, TournamentAdmin, TournamentMember } from '../types';
 import { useTournament } from './TournamentLayout';
 
 export default function AdminPage() {
@@ -29,6 +33,14 @@ export default function AdminPage() {
   const [inviteError, setInviteError] = useState('');
   const [inviteSuccess, setInviteSuccess] = useState('');
 
+  // Join code
+  const [joinCode, setJoinCode] = useState('');
+  const [joinCodeLoading, setJoinCodeLoading] = useState(false);
+  const [joinCodeCopied, setJoinCodeCopied] = useState(false);
+
+  // Members
+  const [members, setMembers] = useState<TournamentMember[]>([]);
+
   const loadDashboard = async () => {
     try {
       const data = await fetchAdminDashboard(tournamentId);
@@ -45,13 +57,33 @@ export default function AdminPage() {
       const data = await fetchTournamentAdmins(tournamentId);
       setAdmins(data);
     } catch {
-      // ignore — user might not have access
+      // ignore
+    }
+  };
+
+  const loadJoinCode = async () => {
+    try {
+      const data = await getJoinCode(tournamentId);
+      setJoinCode(data.join_code);
+    } catch {
+      // ignore
+    }
+  };
+
+  const loadMembers = async () => {
+    try {
+      const data = await fetchTournamentMembers(tournamentId);
+      setMembers(data);
+    } catch {
+      // ignore
     }
   };
 
   useEffect(() => {
     loadDashboard();
     loadAdmins();
+    loadJoinCode();
+    loadMembers();
   }, [tournamentId]);
 
   const handleAction = async (action: string, fn: () => Promise<any>) => {
@@ -101,6 +133,34 @@ export default function AdminPage() {
       loadAdmins();
     } catch (err: any) {
       setInviteError(err.message);
+    }
+  };
+
+  const handleRegenerateCode = async () => {
+    if (!confirm('Are you sure? The old code will stop working.')) return;
+    setJoinCodeLoading(true);
+    try {
+      const data = await regenerateJoinCode(tournamentId);
+      setJoinCode(data.join_code);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setJoinCodeLoading(false);
+    }
+  };
+
+  const handleCopyCode = () => {
+    navigator.clipboard.writeText(joinCode);
+    setJoinCodeCopied(true);
+    setTimeout(() => setJoinCodeCopied(false), 2000);
+  };
+
+  const handleRemoveMember = async (userId: string) => {
+    try {
+      await removeMember(tournamentId, userId);
+      loadMembers();
+    } catch (err: any) {
+      setError(err.message);
     }
   };
 
@@ -159,6 +219,25 @@ export default function AdminPage() {
         </div>
       )}
 
+      {/* Join Code Section */}
+      <div className="join-code-section">
+        <h3>Join Code</h3>
+        <p className="join-code-hint">Share this code with users so they can join your tournament.</p>
+        <div className="join-code-display">
+          <span className="join-code-value">{joinCode || '...'}</span>
+          <button className="btn btn-primary btn-sm" onClick={handleCopyCode} disabled={!joinCode}>
+            {joinCodeCopied ? 'Copied!' : 'Copy'}
+          </button>
+          <button
+            className="btn btn-secondary btn-sm"
+            onClick={handleRegenerateCode}
+            disabled={joinCodeLoading}
+          >
+            {joinCodeLoading ? 'Regenerating...' : 'Regenerate'}
+          </button>
+        </div>
+      </div>
+
       {/* Actions */}
       <div className="admin-actions">
         <h3>Actions</h3>
@@ -196,6 +275,31 @@ export default function AdminPage() {
               {actionLoading === 'advance' ? 'Advancing...' : 'Advance to Next Round'}
             </button>
           </>
+        )}
+      </div>
+
+      {/* Members Section */}
+      <div className="admin-management">
+        <h3>Members ({members.length})</h3>
+        {members.length === 0 ? (
+          <p className="empty-state">No members yet. Share the join code above!</p>
+        ) : (
+          <ul className="admin-list">
+            {members.map((m) => (
+              <li key={m.id} className="admin-list-item">
+                <div>
+                  <strong>{m.profiles?.display_name || m.profiles?.email || 'Unknown'}</strong>
+                  <span className="admin-role-tag">member</span>
+                </div>
+                <button
+                  className="btn btn-sm btn-secondary"
+                  onClick={() => handleRemoveMember(m.user_id)}
+                >
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
         )}
       </div>
 

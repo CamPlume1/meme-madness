@@ -1,7 +1,15 @@
 from fastapi import Request, HTTPException
 from app.supabase_client import supabase_admin
 import httpx
+import secrets
+import string
 from app.config import SUPABASE_URL, SUPABASE_ANON_KEY
+
+
+def generate_join_code(length: int = 8) -> str:
+    """Generate a random uppercase alphanumeric join code."""
+    alphabet = string.ascii_uppercase + string.digits
+    return ''.join(secrets.choice(alphabet) for _ in range(length))
 
 
 async def get_current_user(request: Request) -> dict:
@@ -67,3 +75,71 @@ async def require_tournament_admin(request: Request) -> dict:
 
     user["tournament_role"] = admin_row.data["role"]
     return user
+
+
+async def verify_membership(user_id: str, tournament_id: str) -> None:
+    """Check that user_id is an admin or member of tournament_id.
+    Raises 403 if neither. Used for query-param-based routes."""
+    admin_row = (
+        supabase_admin.table("tournament_admins")
+        .select("id")
+        .eq("tournament_id", tournament_id)
+        .eq("user_id", user_id)
+        .maybe_single()
+        .execute()
+    )
+    if admin_row.data:
+        return
+
+    member_row = (
+        supabase_admin.table("tournament_members")
+        .select("id")
+        .eq("tournament_id", tournament_id)
+        .eq("user_id", user_id)
+        .maybe_single()
+        .execute()
+    )
+    if member_row.data:
+        return
+
+    raise HTTPException(status_code=403, detail="You are not a member of this tournament")
+
+
+async def require_tournament_member(request: Request) -> dict:
+    """FastAPI dependency: require the current user to be a member or admin
+    of the tournament specified by the 'tournament_id' path parameter."""
+    user = await get_current_user(request)
+
+    tournament_id = request.path_params.get("tournament_id")
+    if not tournament_id:
+        raise HTTPException(status_code=400, detail="tournament_id path parameter required")
+
+    # Check admin table first (admins are implicit members)
+    admin_row = (
+        supabase_admin.table("tournament_admins")
+        .select("id, role")
+        .eq("tournament_id", tournament_id)
+        .eq("user_id", user["id"])
+        .maybe_single()
+        .execute()
+    )
+
+    if admin_row.data:
+        user["tournament_role"] = admin_row.data["role"]
+        return user
+
+    # Check members table
+    member_row = (
+        supabase_admin.table("tournament_members")
+        .select("id")
+        .eq("tournament_id", tournament_id)
+        .eq("user_id", user["id"])
+        .maybe_single()
+        .execute()
+    )
+
+    if member_row.data:
+        user["tournament_role"] = "member"
+        return user
+
+    raise HTTPException(status_code=403, detail="You are not a member of this tournament")
