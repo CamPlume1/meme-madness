@@ -97,7 +97,7 @@ async def get_my_vote(matchup_id: str, user: dict = Depends(get_current_user)):
     tournament_id = await _get_tournament_from_matchup(matchup_id)
     await verify_membership(user["id"], tournament_id)
 
-    vote = (
+    vote_result = (
         supabase_admin.table("votes")
         .select("*")
         .eq("matchup_id", matchup_id)
@@ -105,7 +105,8 @@ async def get_my_vote(matchup_id: str, user: dict = Depends(get_current_user)):
         .maybe_single()
         .execute()
     )
-    return {"voted": vote.data is not None, "vote": vote.data}
+    vote_data = vote_result.data if vote_result else None
+    return {"voted": vote_data is not None, "vote": vote_data}
 
 
 @router.get("/matchup/{matchup_id}/results")
@@ -139,7 +140,7 @@ async def get_matchup_results(matchup_id: str, user: dict = Depends(get_current_
         meme_b = supabase_admin.table("memes").select("owner_id").eq("id", matchup["meme_b_id"]).single().execute().data
         is_owner = meme_b["owner_id"] == user["id"]
 
-    has_voted = my_vote.data is not None
+    has_voted = (my_vote.data is not None) if my_vote else False
     is_complete = matchup["status"] == "complete"
 
     if not has_voted and not is_complete and not is_owner:
