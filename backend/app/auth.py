@@ -44,9 +44,26 @@ async def get_current_user(request: Request) -> dict:
     return profile.data
 
 
-async def require_admin(request: Request) -> dict:
-    """Require the current user to be an admin."""
+async def require_tournament_admin(request: Request) -> dict:
+    """Require the current user to be an admin of the tournament specified
+    by the 'tournament_id' path parameter."""
     user = await get_current_user(request)
-    if not user.get("is_admin"):
-        raise HTTPException(status_code=403, detail="Admin access required")
+
+    tournament_id = request.path_params.get("tournament_id")
+    if not tournament_id:
+        raise HTTPException(status_code=400, detail="tournament_id path parameter required")
+
+    admin_row = (
+        supabase_admin.table("tournament_admins")
+        .select("id, role")
+        .eq("tournament_id", tournament_id)
+        .eq("user_id", user["id"])
+        .maybe_single()
+        .execute()
+    )
+
+    if not admin_row.data:
+        raise HTTPException(status_code=403, detail="You are not an admin of this tournament")
+
+    user["tournament_role"] = admin_row.data["role"]
     return user

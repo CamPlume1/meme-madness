@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, Query
 from app.auth import get_current_user
 from app.supabase_client import supabase_admin
 from app.config import SUPABASE_URL
@@ -10,31 +10,34 @@ MAX_MEMES_PER_USER = 2
 
 
 @router.get("/")
-async def list_memes(user: dict = Depends(get_current_user)):
-    """List all submitted memes."""
-    result = supabase_admin.table("memes").select(
-        "*, profiles(display_name)"
-    ).order("submitted_at", desc=True).execute()
+async def list_memes(
+    user: dict = Depends(get_current_user),
+    tournament_id: str = Query(None),
+):
+    """List submitted memes, optionally filtered by tournament."""
+    query = supabase_admin.table("memes").select("*, profiles(display_name)")
+    if tournament_id:
+        query = query.eq("tournament_id", tournament_id)
+    result = query.order("submitted_at", desc=True).execute()
     return result.data
 
 
 @router.get("/mine")
-async def my_memes(user: dict = Depends(get_current_user)):
+async def my_memes(
+    user: dict = Depends(get_current_user),
+    tournament_id: str = Query(None),
+):
     """List memes submitted by the current user, with tournament status."""
-    memes = (
-        supabase_admin.table("memes")
-        .select("*")
-        .eq("owner_id", user["id"])
-        .order("submitted_at", desc=True)
-        .execute()
-    ).data
+    query = supabase_admin.table("memes").select("*").eq("owner_id", user["id"])
+    if tournament_id:
+        query = query.eq("tournament_id", tournament_id)
+    memes = query.order("submitted_at", desc=True).execute().data
 
-    # For each meme, check if it's active in the tournament
+    # For each meme, check tournament status via matchups
     for meme in memes:
-        # Check if the meme has any active (non-complete with loss) matchups
         as_a = (
             supabase_admin.table("matchups")
-            .select("id, status, winner_id")
+            .select("id, status, winner_id, meme_b_id")
             .eq("meme_a_id", meme["id"])
             .execute()
         ).data
@@ -75,33 +78,38 @@ async def my_memes(user: dict = Depends(get_current_user)):
 @router.post("/upload")
 async def upload_meme(
     title: str = Form(""),
+    tournament_id: str = Form(...),
     file: UploadFile = File(...),
     user: dict = Depends(get_current_user),
 ):
-    """Upload a meme image. Max 2 per user."""
+    """Upload a meme image to a specific tournament. Max 2 per user per tournament."""
     # Check tournament status
     tournament = (
         supabase_admin.table("tournament")
         .select("*")
-        .order("created_at", desc=True)
-        .limit(1)
+        .eq("id", tournament_id)
+        .maybe_single()
         .execute()
     ).data
 
-    if not tournament or tournament[0]["status"] != "submission_open":
+    if not tournament:
+        raise HTTPException(status_code=404, detail="Tournament not found")
+
+    if tournament["status"] != "submission_open":
         raise HTTPException(status_code=400, detail="Submissions are not currently open")
 
-    # Check meme count
+    # Check meme count for THIS tournament
     count = (
         supabase_admin.table("memes")
         .select("id", count="exact")
         .eq("owner_id", user["id"])
+        .eq("tournament_id", tournament_id)
         .execute()
     )
     if count.count >= MAX_MEMES_PER_USER:
         raise HTTPException(
             status_code=400,
-            detail=f"You've already submitted {MAX_MEMES_PER_USER} memes"
+            detail=f"You've already submitted {MAX_MEMES_PER_USER} memes for this tournament"
         )
 
     # Upload to Supabase Storage
@@ -117,11 +125,12 @@ async def upload_meme(
 
     image_url = f"{SUPABASE_URL}/storage/v1/object/public/memes/{file_path}"
 
-    # Insert meme record
+    # Insert meme record with tournament_id
     meme = supabase_admin.table("memes").insert({
         "owner_id": user["id"],
         "title": title,
         "image_url": image_url,
+        "tournament_id": tournament_id,
     }).execute()
 
     return meme.data[0]

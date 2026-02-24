@@ -1,7 +1,6 @@
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from typing import Optional
-from app.auth import require_admin
+from app.auth import get_current_user, require_tournament_admin
 from app.supabase_client import supabase_admin
 from app.services.bracket import seed_bracket, generate_next_round
 
@@ -17,20 +16,34 @@ class TieBreakRequest(BaseModel):
     winner_id: str
 
 
+class InviteAdminRequest(BaseModel):
+    email: str
+
+
 @router.post("/tournament/create")
-async def create_tournament(body: TournamentCreate, admin: dict = Depends(require_admin)):
-    """Create a new tournament (submission_open by default)."""
+async def create_tournament(body: TournamentCreate, user: dict = Depends(get_current_user)):
+    """Create a new tournament. The creator becomes the owner/admin."""
     result = supabase_admin.table("tournament").insert({
         "name": body.name,
         "status": "submission_open",
+        "created_by": user["id"],
     }).execute()
-    return result.data[0]
+
+    tournament = result.data[0]
+
+    # Make creator the tournament owner
+    supabase_admin.table("tournament_admins").insert({
+        "tournament_id": tournament["id"],
+        "user_id": user["id"],
+        "role": "owner",
+    }).execute()
+
+    return tournament
 
 
 @router.post("/tournament/{tournament_id}/seed")
-async def seed_tournament(tournament_id: str, admin: dict = Depends(require_admin)):
+async def seed_tournament(tournament_id: str, admin: dict = Depends(require_tournament_admin)):
     """Close submissions and seed round 1 bracket."""
-    # Verify tournament exists and is in submission_open
     t = (
         supabase_admin.table("tournament")
         .select("*")
@@ -47,9 +60,8 @@ async def seed_tournament(tournament_id: str, admin: dict = Depends(require_admi
 
 
 @router.post("/tournament/{tournament_id}/advance-round")
-async def advance_round(tournament_id: str, admin: dict = Depends(require_admin)):
+async def advance_round(tournament_id: str, admin: dict = Depends(require_tournament_admin)):
     """Close the current voting round and generate the next round."""
-    # Find the current active round
     rounds = (
         supabase_admin.table("rounds")
         .select("*")
@@ -67,7 +79,6 @@ async def advance_round(tournament_id: str, admin: dict = Depends(require_admin)
     if current_round["status"] == "complete":
         raise HTTPException(status_code=400, detail="Current round is already complete")
 
-    # Check all matchups in this round are complete
     matchups = (
         supabase_admin.table("matchups")
         .select("id, status, winner_id")
@@ -82,7 +93,6 @@ async def advance_round(tournament_id: str, admin: dict = Depends(require_admin)
             detail=f"{len(incomplete)} matchups still need resolution. Use tie-break to resolve tied matchups."
         )
 
-    # Check if this is the final round
     tournament = (
         supabase_admin.table("tournament")
         .select("total_rounds")
@@ -92,13 +102,11 @@ async def advance_round(tournament_id: str, admin: dict = Depends(require_admin)
     ).data
 
     if current_round["round_number"] >= tournament["total_rounds"]:
-        # This was the final round — the winner is the winner of the sole matchup
-        final_matchup = matchups[0]  # Should only be one
+        final_matchup = matchups[0]
         supabase_admin.table("tournament").update({
             "status": "complete"
         }).eq("id", tournament_id).execute()
 
-        # Mark round as complete
         supabase_admin.table("rounds").update({
             "status": "complete"
         }).eq("id", current_round["id"]).execute()
@@ -112,8 +120,12 @@ async def advance_round(tournament_id: str, admin: dict = Depends(require_admin)
     return result
 
 
-@router.post("/tournament/tie-break")
-async def tie_break(body: TieBreakRequest, admin: dict = Depends(require_admin)):
+@router.post("/tournament/{tournament_id}/tie-break")
+async def tie_break(
+    tournament_id: str,
+    body: TieBreakRequest,
+    admin: dict = Depends(require_tournament_admin),
+):
     """Admin breaks a tie by selecting the winner."""
     matchup = (
         supabase_admin.table("matchups")
@@ -137,10 +149,13 @@ async def tie_break(body: TieBreakRequest, admin: dict = Depends(require_admin))
     return {"success": True, "winner_id": body.winner_id}
 
 
-@router.post("/matchup/{matchup_id}/close")
-async def close_matchup(matchup_id: str, admin: dict = Depends(require_admin)):
-    """Close voting on a matchup and determine the winner by vote count.
-    Returns a tie if counts are equal (admin must then tie-break)."""
+@router.post("/tournament/{tournament_id}/matchup/{matchup_id}/close")
+async def close_matchup(
+    tournament_id: str,
+    matchup_id: str,
+    admin: dict = Depends(require_tournament_admin),
+):
+    """Close voting on a matchup and determine the winner by vote count."""
     matchup = (
         supabase_admin.table("matchups")
         .select("*")
@@ -167,7 +182,6 @@ async def close_matchup(matchup_id: str, admin: dict = Depends(require_admin)):
     elif votes_b > votes_a:
         winner_id = matchup["meme_b_id"]
     else:
-        # Tie — admin needs to break it
         return {
             "tie": True,
             "votes_a": votes_a,
@@ -183,9 +197,13 @@ async def close_matchup(matchup_id: str, admin: dict = Depends(require_admin)):
     return {"winner_id": winner_id, "votes_a": votes_a, "votes_b": votes_b}
 
 
-@router.post("/round/{round_id}/close-all")
-async def close_all_matchups_in_round(round_id: str, admin: dict = Depends(require_admin)):
-    """Close all voting matchups in a round. Returns list of results including ties."""
+@router.post("/tournament/{tournament_id}/round/{round_id}/close-all")
+async def close_all_matchups_in_round(
+    tournament_id: str,
+    round_id: str,
+    admin: dict = Depends(require_tournament_admin),
+):
+    """Close all voting matchups in a round."""
     matchups = (
         supabase_admin.table("matchups")
         .select("*")
@@ -239,34 +257,29 @@ async def close_all_matchups_in_round(round_id: str, admin: dict = Depends(requi
     }
 
 
-@router.get("/dashboard")
-async def admin_dashboard(admin: dict = Depends(require_admin)):
-    """Get admin dashboard summary."""
-    tournament = (
+@router.get("/tournament/{tournament_id}/dashboard")
+async def admin_dashboard(tournament_id: str, admin: dict = Depends(require_tournament_admin)):
+    """Get admin dashboard summary for a tournament."""
+    t = (
         supabase_admin.table("tournament")
         .select("*")
-        .order("created_at", desc=True)
-        .limit(1)
+        .eq("id", tournament_id)
+        .single()
         .execute()
     ).data
 
-    if not tournament:
-        return {"tournament": None}
-
-    t = tournament[0]
-
-    # Count memes
+    # Count memes for this tournament
     memes_count = (
         supabase_admin.table("memes")
         .select("id", count="exact")
+        .eq("tournament_id", tournament_id)
         .execute()
     ).count
 
-    # Get rounds info
     rounds = (
         supabase_admin.table("rounds")
         .select("*")
-        .eq("tournament_id", t["id"])
+        .eq("tournament_id", tournament_id)
         .order("round_number")
         .execute()
     ).data
@@ -277,7 +290,6 @@ async def admin_dashboard(admin: dict = Depends(require_admin)):
             current_round = r
             break
 
-    # If there's a current round, get matchup stats
     round_stats = None
     if current_round:
         matchups = (
@@ -312,3 +324,81 @@ async def admin_dashboard(admin: dict = Depends(require_admin)):
         "current_round": round_stats,
         "rounds": rounds,
     }
+
+
+# === Admin management endpoints ===
+
+@router.post("/tournament/{tournament_id}/invite-admin")
+async def invite_admin(
+    tournament_id: str,
+    body: InviteAdminRequest,
+    admin: dict = Depends(require_tournament_admin),
+):
+    """Invite another user as an admin by email."""
+    profile = (
+        supabase_admin.table("profiles")
+        .select("id, email")
+        .eq("email", body.email)
+        .maybe_single()
+        .execute()
+    )
+
+    if not profile.data:
+        raise HTTPException(status_code=404, detail="No user found with that email")
+
+    existing = (
+        supabase_admin.table("tournament_admins")
+        .select("id")
+        .eq("tournament_id", tournament_id)
+        .eq("user_id", profile.data["id"])
+        .maybe_single()
+        .execute()
+    )
+
+    if existing.data:
+        raise HTTPException(status_code=400, detail="User is already an admin of this tournament")
+
+    supabase_admin.table("tournament_admins").insert({
+        "tournament_id": tournament_id,
+        "user_id": profile.data["id"],
+        "role": "admin",
+        "invited_by": admin["id"],
+    }).execute()
+
+    return {"success": True, "invited_email": body.email}
+
+
+@router.get("/tournament/{tournament_id}/admins")
+async def list_tournament_admins(
+    tournament_id: str,
+    admin: dict = Depends(require_tournament_admin),
+):
+    """List all admins for a tournament."""
+    admins = (
+        supabase_admin.table("tournament_admins")
+        .select("*, profiles(display_name, email)")
+        .eq("tournament_id", tournament_id)
+        .order("created_at")
+        .execute()
+    )
+    return admins.data
+
+
+@router.delete("/tournament/{tournament_id}/admins/{user_id}")
+async def remove_tournament_admin(
+    tournament_id: str,
+    user_id: str,
+    admin: dict = Depends(require_tournament_admin),
+):
+    """Remove an admin from a tournament. Only the owner can do this."""
+    if admin.get("tournament_role") != "owner":
+        raise HTTPException(status_code=403, detail="Only the tournament owner can remove admins")
+
+    if user_id == admin["id"]:
+        raise HTTPException(status_code=400, detail="Cannot remove yourself")
+
+    supabase_admin.table("tournament_admins").delete().eq(
+        "tournament_id", tournament_id
+    ).eq("user_id", user_id).execute()
+
+    return {"success": True}

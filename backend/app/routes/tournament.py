@@ -5,46 +5,76 @@ from app.supabase_client import supabase_admin
 router = APIRouter()
 
 
-@router.get("/")
-async def get_tournament(user: dict = Depends(get_current_user)):
-    """Get the current tournament info."""
+@router.get("/list")
+async def list_tournaments(user: dict = Depends(get_current_user)):
+    """List all tournaments, annotated with the requesting user's role."""
+    tournaments = (
+        supabase_admin.table("tournament")
+        .select("*")
+        .order("created_at", desc=True)
+        .execute()
+    ).data
+
+    # Get user's admin memberships
+    admin_roles = (
+        supabase_admin.table("tournament_admins")
+        .select("tournament_id, role")
+        .eq("user_id", user["id"])
+        .execute()
+    ).data
+    admin_map = {r["tournament_id"]: r["role"] for r in admin_roles}
+
+    for t in tournaments:
+        t["user_role"] = admin_map.get(t["id"])
+
+    return tournaments
+
+
+@router.get("/{tournament_id}")
+async def get_tournament(tournament_id: str, user: dict = Depends(get_current_user)):
+    """Get a specific tournament, including the user's role."""
     result = (
         supabase_admin.table("tournament")
         .select("*")
-        .order("created_at", desc=True)
-        .limit(1)
+        .eq("id", tournament_id)
+        .maybe_single()
         .execute()
     )
     if not result.data:
-        return None
-    return result.data[0]
+        raise HTTPException(status_code=404, detail="Tournament not found")
 
+    t = result.data
 
-@router.get("/rounds")
-async def get_rounds(user: dict = Depends(get_current_user)):
-    """Get all rounds for the current tournament."""
-    tournament = (
-        supabase_admin.table("tournament")
-        .select("id")
-        .order("created_at", desc=True)
-        .limit(1)
+    # Check user's role
+    admin_row = (
+        supabase_admin.table("tournament_admins")
+        .select("role")
+        .eq("tournament_id", tournament_id)
+        .eq("user_id", user["id"])
+        .maybe_single()
         .execute()
     )
-    if not tournament.data:
-        return []
+    t["user_role"] = admin_row.data["role"] if admin_row.data else None
 
+    return t
+
+
+@router.get("/{tournament_id}/rounds")
+async def get_rounds(tournament_id: str, user: dict = Depends(get_current_user)):
+    """Get all rounds for a tournament."""
     rounds = (
         supabase_admin.table("rounds")
         .select("*")
-        .eq("tournament_id", tournament.data[0]["id"])
+        .eq("tournament_id", tournament_id)
         .order("round_number")
         .execute()
     )
     return rounds.data
 
 
-@router.get("/rounds/{round_number}/matchups")
+@router.get("/{tournament_id}/rounds/{round_number}/matchups")
 async def get_round_matchups(
+    tournament_id: str,
     round_number: int,
     user: dict = Depends(get_current_user),
     offset: int = Query(0, ge=0),
@@ -52,24 +82,17 @@ async def get_round_matchups(
 ):
     """Get matchups for a specific round, with pagination.
     Includes meme details and vote counts."""
-    tournament = (
-        supabase_admin.table("tournament")
-        .select("id")
-        .order("created_at", desc=True)
-        .limit(1)
-        .execute()
-    )
-    if not tournament.data:
-        raise HTTPException(status_code=404, detail="No tournament found")
-
     round_row = (
         supabase_admin.table("rounds")
         .select("id, status")
-        .eq("tournament_id", tournament.data[0]["id"])
+        .eq("tournament_id", tournament_id)
         .eq("round_number", round_number)
-        .single()
+        .maybe_single()
         .execute()
     )
+
+    if not round_row.data:
+        raise HTTPException(status_code=404, detail="Round not found")
 
     matchups = (
         supabase_admin.table("matchups")
@@ -80,7 +103,6 @@ async def get_round_matchups(
         .execute()
     )
 
-    # Get total count
     count_result = (
         supabase_admin.table("matchups")
         .select("id", count="exact")
@@ -88,7 +110,7 @@ async def get_round_matchups(
         .execute()
     )
 
-    # Attach vote counts to each matchup
+    # Attach vote counts
     for matchup in matchups.data:
         votes = (
             supabase_admin.table("votes")
@@ -112,21 +134,20 @@ async def get_round_matchups(
     }
 
 
-@router.get("/bracket")
-async def get_bracket(user: dict = Depends(get_current_user)):
-    """Get the full bracket structure (rounds and matchup IDs with progression links).
-    For rendering the bracket view — loads lightweight data per round."""
-    tournament = (
+@router.get("/{tournament_id}/bracket")
+async def get_bracket(tournament_id: str, user: dict = Depends(get_current_user)):
+    """Get the full bracket structure for a tournament."""
+    t_result = (
         supabase_admin.table("tournament")
         .select("*")
-        .order("created_at", desc=True)
-        .limit(1)
+        .eq("id", tournament_id)
+        .maybe_single()
         .execute()
     )
-    if not tournament.data:
-        raise HTTPException(status_code=404, detail="No tournament found")
+    if not t_result.data:
+        raise HTTPException(status_code=404, detail="Tournament not found")
 
-    t = tournament.data[0]
+    t = t_result.data
 
     rounds = (
         supabase_admin.table("rounds")

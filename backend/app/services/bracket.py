@@ -13,11 +13,16 @@ def next_power_of_2(n: int) -> int:
 
 
 def seed_bracket(tournament_id: str) -> dict:
-    """Seed round 1 from all submitted memes.
+    """Seed round 1 from memes submitted to this tournament.
     Returns info about the bracket (size, byes, round 1 matchups)."""
 
-    # Get all memes
-    memes_resp = supabase_admin.table("memes").select("id").execute()
+    # Get memes for THIS tournament
+    memes_resp = (
+        supabase_admin.table("memes")
+        .select("id")
+        .eq("tournament_id", tournament_id)
+        .execute()
+    )
     memes = memes_resp.data
     num_memes = len(memes)
 
@@ -47,8 +52,6 @@ def seed_bracket(tournament_id: str) -> dict:
     }).execute()
 
     # Distribute byes evenly: place byes at the end to spread them out
-    # Bye memes get auto-advanced, so they go first in the list
-    # We'll pair: first `num_byes` memes get byes, rest get paired
     bye_memes = memes[:num_byes]
     competing_memes = memes[num_byes:]
 
@@ -168,10 +171,8 @@ def generate_next_round(tournament_id: str, current_round_number: int) -> dict:
 
     supabase_admin.table("matchups").insert(next_matchups).execute()
 
-    # Now link the current round's matchups to the next round's matchups
-    # Every pair of current matchups feeds into one next matchup
+    # Link current round's matchups to next round's matchups
     for i, next_matchup in enumerate(next_matchups):
-        # Two matchups from current round feed into this next matchup
         idx1 = i * 2
         idx2 = i * 2 + 1
         if idx1 < len(matchups):
