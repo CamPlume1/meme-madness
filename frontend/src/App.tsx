@@ -1,35 +1,52 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
-import './App.css'
+import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { AuthProvider, useAuth } from './hooks/useAuth';
+import Header from './components/Header';
+import LoginPage from './pages/LoginPage';
+import SubmitPage from './pages/SubmitPage';
+import BracketPage from './pages/BracketPage';
+import VotingPage from './pages/VotingPage';
+import AdminPage from './pages/AdminPage';
+import './App.css';
 
-function App() {
-  const [count, setCount] = useState(0)
+function ProtectedLayout() {
+  const { session, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <div className="loading-screen">
+        <div className="loading-brand">
+          <h1>Blueprint Talent Group</h1>
+          <h2>Meme Madness 🏆</h2>
+        </div>
+        <div className="spinner" />
+      </div>
+    );
+  }
+
+  if (!session) return <LoginPage />;
 
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
-  )
+    <div className="app-layout">
+      <Header />
+      <main className="app-main">
+        <Routes>
+          <Route path="/" element={<SubmitPage />} />
+          <Route path="/bracket" element={<BracketPage />} />
+          <Route path="/vote" element={<VotingPage />} />
+          <Route path="/admin" element={<AdminPage />} />
+          <Route path="*" element={<Navigate to="/" />} />
+        </Routes>
+      </main>
+    </div>
+  );
 }
 
-export default App
+export default function App() {
+  return (
+    <BrowserRouter>
+      <AuthProvider>
+        <ProtectedLayout />
+      </AuthProvider>
+    </BrowserRouter>
+  );
+}
