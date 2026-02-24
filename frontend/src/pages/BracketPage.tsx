@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { fetchBracket } from '../lib/api';
 import { BracketData, Matchup } from '../types';
-import { useAuth } from '../hooks/useAuth';
+import { useTournament } from './TournamentLayout';
 
 function MatchupCard({ matchup, compact }: { matchup: Matchup; compact?: boolean }) {
   const isBye = !matchup.meme_b_id;
@@ -41,16 +41,16 @@ function MatchupCard({ matchup, compact }: { matchup: Matchup; compact?: boolean
 }
 
 export default function BracketPage() {
-  const { profile } = useAuth();
+  const { tournamentId } = useTournament();
   const [bracket, setBracket] = useState<BracketData | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeRound, setActiveRound] = useState(1);
 
   useEffect(() => {
-    fetchBracket()
+    setLoading(true);
+    fetchBracket(tournamentId)
       .then((data) => {
         setBracket(data);
-        // Set active round to the latest non-complete round
         if (data.rounds.length > 0) {
           const active = data.rounds.find((r: any) => r.round.status !== 'complete');
           if (active) setActiveRound(active.round.round_number);
@@ -59,7 +59,7 @@ export default function BracketPage() {
       })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [tournamentId]);
 
   if (loading) return <div className="page"><p>Loading bracket...</p></div>;
 
@@ -87,7 +87,6 @@ export default function BracketPage() {
         </div>
       </div>
 
-      {/* Round selector tabs */}
       <div className="round-tabs">
         {bracket.rounds.map((r) => (
           <button
@@ -105,9 +104,7 @@ export default function BracketPage() {
         ))}
       </div>
 
-      {/* Bracket view — horizontal scroll for full bracket or focused single round */}
       {isLarge ? (
-        // Large bracket: show one round at a time
         <div className="bracket-single-round">
           {bracket.rounds
             .filter((r) => r.round.round_number === activeRound)
@@ -128,7 +125,6 @@ export default function BracketPage() {
             ))}
         </div>
       ) : (
-        // Small bracket: horizontal scroll view
         <div className="bracket-scroll">
           {bracket.rounds.map((r) => (
             <div key={r.round.id} className="bracket-round-col">

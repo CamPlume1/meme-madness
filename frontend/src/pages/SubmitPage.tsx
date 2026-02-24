@@ -1,12 +1,11 @@
 import { useState, useEffect } from 'react';
-import { useAuth } from '../hooks/useAuth';
-import { uploadMeme, fetchMyMemes, fetchTournament } from '../lib/api';
-import { Meme, Tournament } from '../types';
+import { uploadMeme, fetchMyMemes } from '../lib/api';
+import { Meme } from '../types';
+import { useTournament } from './TournamentLayout';
 
 export default function SubmitPage() {
-  const { profile } = useAuth();
+  const { tournament, tournamentId } = useTournament();
   const [myMemes, setMyMemes] = useState<Meme[]>([]);
-  const [tournament, setTournament] = useState<Tournament | null>(null);
   const [title, setTitle] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -16,17 +15,16 @@ export default function SubmitPage() {
 
   const loadData = async () => {
     try {
-      const [memes, t] = await Promise.all([fetchMyMemes(), fetchTournament()]);
+      const memes = await fetchMyMemes(tournamentId);
       setMyMemes(memes);
-      setTournament(t);
     } catch {
-      // Tournament might not exist yet
+      // ignore
     }
   };
 
   useEffect(() => {
     loadData();
-  }, []);
+  }, [tournamentId]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
@@ -46,6 +44,7 @@ export default function SubmitPage() {
     const formData = new FormData();
     formData.append('file', file);
     formData.append('title', title);
+    formData.append('tournament_id', tournamentId);
 
     try {
       await uploadMeme(formData);
@@ -61,20 +60,14 @@ export default function SubmitPage() {
     }
   };
 
-  const submissionsOpen = tournament?.status === 'submission_open';
+  const submissionsOpen = tournament.status === 'submission_open';
   const atLimit = myMemes.length >= 2;
 
   return (
     <div className="page submit-page">
       <h2>Submit Your Meme</h2>
 
-      {!tournament && (
-        <div className="info-card">
-          <p>No tournament is currently active. Check back soon!</p>
-        </div>
-      )}
-
-      {tournament && !submissionsOpen && (
+      {!submissionsOpen && (
         <div className="info-card">
           <p>Submissions are closed. The tournament is {tournament.status === 'voting_open' ? 'in progress' : 'complete'}!</p>
         </div>

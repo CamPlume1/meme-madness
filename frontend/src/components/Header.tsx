@@ -7,26 +7,17 @@ export default function Header() {
   return (
     <header className="app-header">
       <div className="header-brand">
-        <h1>
-          <span className="brand-company">Blueprint Talent Group</span>
-          <span className="brand-event">Meme Madness 🏆</span>
-        </h1>
+        <NavLink to="/" style={{ textDecoration: 'none', color: 'inherit' }}>
+          <h1>
+            <span className="brand-company">Blueprint Talent Group</span>
+            <span className="brand-event">Meme Madness 🏆</span>
+          </h1>
+        </NavLink>
       </div>
       <nav className="header-nav">
-        <NavLink to="/" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-          Submit
+        <NavLink to="/" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'} end>
+          Tournaments
         </NavLink>
-        <NavLink to="/bracket" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-          Bracket
-        </NavLink>
-        <NavLink to="/vote" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-          Vote
-        </NavLink>
-        {profile?.is_admin && (
-          <NavLink to="/admin" className={({ isActive }) => isActive ? 'nav-link active' : 'nav-link'}>
-            Admin
-          </NavLink>
-        )}
       </nav>
       <div className="header-user">
         <span className="user-name">{profile?.display_name || profile?.email}</span>

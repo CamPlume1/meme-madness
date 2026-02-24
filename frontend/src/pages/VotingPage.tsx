@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import { fetchRounds, fetchRoundMatchups, castVote, fetchMyVote, fetchMatchupResults } from '../lib/api';
 import { Round, Matchup } from '../types';
+import { useTournament } from './TournamentLayout';
 
 function VotingMatchup({ matchup, userId, onVoted }: { matchup: Matchup; userId: string; onVoted: () => void }) {
   const [myVote, setMyVote] = useState<string | null>(null);
@@ -92,6 +93,7 @@ function VotingMatchup({ matchup, userId, onVoted }: { matchup: Matchup; userId:
 
 export default function VotingPage() {
   const { user } = useAuth();
+  const { tournamentId } = useTournament();
   const [rounds, setRounds] = useState<Round[]>([]);
   const [activeRound, setActiveRound] = useState<number | null>(null);
   const [matchups, setMatchups] = useState<Matchup[]>([]);
@@ -101,25 +103,25 @@ export default function VotingPage() {
   const PAGE_SIZE = 10;
 
   useEffect(() => {
-    fetchRounds().then((data) => {
+    fetchRounds(tournamentId).then((data) => {
       setRounds(data);
       const votingRound = data.find((r: Round) => r.status === 'voting');
       if (votingRound) setActiveRound(votingRound.round_number);
       else if (data.length > 0) setActiveRound(data[data.length - 1].round_number);
       setLoading(false);
     }).catch(() => setLoading(false));
-  }, []);
+  }, [tournamentId]);
 
   useEffect(() => {
     if (activeRound === null) return;
     setLoading(true);
-    fetchRoundMatchups(activeRound, page * PAGE_SIZE, PAGE_SIZE)
+    fetchRoundMatchups(tournamentId, activeRound, page * PAGE_SIZE, PAGE_SIZE)
       .then((data) => {
         setMatchups(data.matchups);
         setTotal(data.total);
       })
       .finally(() => setLoading(false));
-  }, [activeRound, page]);
+  }, [tournamentId, activeRound, page]);
 
   if (loading && !matchups.length) return <div className="page"><p>Loading...</p></div>;
 
@@ -158,7 +160,7 @@ export default function VotingPage() {
             matchup={m}
             userId={user?.id || ''}
             onVoted={() => {
-              fetchRoundMatchups(activeRound!, page * PAGE_SIZE, PAGE_SIZE).then((data) => {
+              fetchRoundMatchups(tournamentId, activeRound!, page * PAGE_SIZE, PAGE_SIZE).then((data) => {
                 setMatchups(data.matchups);
               });
             }}

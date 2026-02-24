@@ -2,7 +2,6 @@ export interface Profile {
   id: string;
   email: string;
   display_name: string;
-  is_admin: boolean;
 }
 
 export interface Meme {
@@ -11,6 +10,7 @@ export interface Meme {
   title: string;
   image_url: string;
   submitted_at: string;
+  tournament_id?: string;
   tournament_status?: string;
   profiles?: { display_name: string };
 }
@@ -21,6 +21,8 @@ export interface Tournament {
   status: 'submission_open' | 'voting_open' | 'complete';
   total_rounds: number | null;
   created_at: string;
+  created_by?: string;
+  user_role?: 'owner' | 'admin' | null;
 }
 
 export interface Round {
@@ -63,8 +65,18 @@ export interface BracketData {
   rounds: BracketRound[];
 }
 
+export interface TournamentAdmin {
+  id: string;
+  tournament_id: string;
+  user_id: string;
+  role: 'owner' | 'admin';
+  invited_by: string | null;
+  created_at: string;
+  profiles?: { display_name: string; email: string };
+}
+
 export interface AdminDashboard {
-  tournament: Tournament | null;
+  tournament: Tournament;
   memes_count: number;
   bracket_size: number;
   num_byes: number;

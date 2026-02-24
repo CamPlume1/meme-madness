@@ -2,10 +2,8 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './hooks/useAuth';
 import Header from './components/Header';
 import LoginPage from './pages/LoginPage';
-import SubmitPage from './pages/SubmitPage';
-import BracketPage from './pages/BracketPage';
-import VotingPage from './pages/VotingPage';
-import AdminPage from './pages/AdminPage';
+import TournamentListPage from './pages/TournamentListPage';
+import TournamentLayout from './pages/TournamentLayout';
 import './App.css';
 
 function ProtectedLayout() {
@@ -30,10 +28,8 @@ function ProtectedLayout() {
       <Header />
       <main className="app-main">
         <Routes>
-          <Route path="/" element={<SubmitPage />} />
-          <Route path="/bracket" element={<BracketPage />} />
-          <Route path="/vote" element={<VotingPage />} />
-          <Route path="/admin" element={<AdminPage />} />
+          <Route path="/" element={<TournamentListPage />} />
+          <Route path="/tournament/:tournamentId/*" element={<TournamentLayout />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </main>

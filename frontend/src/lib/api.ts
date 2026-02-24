@@ -27,20 +27,28 @@ async function apiFetch(path: string, options: RequestInit = {}) {
   return res.json();
 }
 
+// Tournament list
+export const fetchTournaments = () => apiFetch('/tournament/list');
+export const fetchTournament = (tournamentId: string) =>
+  apiFetch(`/tournament/${tournamentId}`);
+
+// Tournament-scoped endpoints
+export const fetchRounds = (tournamentId: string) =>
+  apiFetch(`/tournament/${tournamentId}/rounds`);
+export const fetchRoundMatchups = (tournamentId: string, roundNumber: number, offset = 0, limit = 50) =>
+  apiFetch(`/tournament/${tournamentId}/rounds/${roundNumber}/matchups?offset=${offset}&limit=${limit}`);
+export const fetchBracket = (tournamentId: string) =>
+  apiFetch(`/tournament/${tournamentId}/bracket`);
+
 // Memes
-export const fetchAllMemes = () => apiFetch('/memes/');
-export const fetchMyMemes = () => apiFetch('/memes/mine');
+export const fetchAllMemes = (tournamentId?: string) =>
+  apiFetch(`/memes/${tournamentId ? `?tournament_id=${tournamentId}` : ''}`);
+export const fetchMyMemes = (tournamentId?: string) =>
+  apiFetch(`/memes/mine${tournamentId ? `?tournament_id=${tournamentId}` : ''}`);
 export const uploadMeme = (formData: FormData) =>
   apiFetch('/memes/upload', { method: 'POST', body: formData });
 
-// Tournament
-export const fetchTournament = () => apiFetch('/tournament/');
-export const fetchRounds = () => apiFetch('/tournament/rounds');
-export const fetchRoundMatchups = (roundNumber: number, offset = 0, limit = 50) =>
-  apiFetch(`/tournament/rounds/${roundNumber}/matchups?offset=${offset}&limit=${limit}`);
-export const fetchBracket = () => apiFetch('/tournament/bracket');
-
-// Voting
+// Voting (matchup-level, no tournament ID needed)
 export const castVote = (matchupId: string, memeId: string) =>
   apiFetch('/voting/vote', {
     method: 'POST',
@@ -52,25 +60,40 @@ export const fetchMyVote = (matchupId: string) =>
 export const fetchMatchupResults = (matchupId: string) =>
   apiFetch(`/voting/matchup/${matchupId}/results`);
 
-// Admin
-export const fetchAdminDashboard = () => apiFetch('/admin/dashboard');
+// Admin — tournament creation (any authenticated user)
 export const createTournament = (name = 'Meme Madness') =>
   apiFetch('/admin/tournament/create', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ name }),
   });
+
+// Admin — tournament-scoped
+export const fetchAdminDashboard = (tournamentId: string) =>
+  apiFetch(`/admin/tournament/${tournamentId}/dashboard`);
 export const seedTournament = (tournamentId: string) =>
   apiFetch(`/admin/tournament/${tournamentId}/seed`, { method: 'POST' });
 export const advanceRound = (tournamentId: string) =>
   apiFetch(`/admin/tournament/${tournamentId}/advance-round`, { method: 'POST' });
-export const tieBreak = (matchupId: string, winnerId: string) =>
-  apiFetch('/admin/tournament/tie-break', {
+export const tieBreak = (tournamentId: string, matchupId: string, winnerId: string) =>
+  apiFetch(`/admin/tournament/${tournamentId}/tie-break`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ matchup_id: matchupId, winner_id: winnerId }),
   });
-export const closeMatchup = (matchupId: string) =>
-  apiFetch(`/admin/matchup/${matchupId}/close`, { method: 'POST' });
-export const closeAllMatchups = (roundId: string) =>
-  apiFetch(`/admin/round/${roundId}/close-all`, { method: 'POST' });
+export const closeMatchup = (tournamentId: string, matchupId: string) =>
+  apiFetch(`/admin/tournament/${tournamentId}/matchup/${matchupId}/close`, { method: 'POST' });
+export const closeAllMatchups = (tournamentId: string, roundId: string) =>
+  apiFetch(`/admin/tournament/${tournamentId}/round/${roundId}/close-all`, { method: 'POST' });
+
+// Admin — invite management
+export const inviteAdmin = (tournamentId: string, email: string) =>
+  apiFetch(`/admin/tournament/${tournamentId}/invite-admin`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ email }),
+  });
+export const fetchTournamentAdmins = (tournamentId: string) =>
+  apiFetch(`/admin/tournament/${tournamentId}/admins`);
+export const removeAdmin = (tournamentId: string, userId: string) =>
+  apiFetch(`/admin/tournament/${tournamentId}/admins/${userId}`, { method: 'DELETE' });

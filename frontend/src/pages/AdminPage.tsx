@@ -1,18 +1,20 @@
 import { useState, useEffect } from 'react';
-import { useAuth } from '../hooks/useAuth';
 import {
   fetchAdminDashboard,
-  createTournament,
   seedTournament,
   advanceRound,
   closeAllMatchups,
   tieBreak,
   fetchRoundMatchups,
+  inviteAdmin,
+  fetchTournamentAdmins,
+  removeAdmin,
 } from '../lib/api';
-import { AdminDashboard, Matchup, Round } from '../types';
+import { AdminDashboard, Matchup, Round, TournamentAdmin } from '../types';
+import { useTournament } from './TournamentLayout';
 
 export default function AdminPage() {
-  const { profile } = useAuth();
+  const { tournamentId, isAdmin, userRole, reload } = useTournament();
   const [dashboard, setDashboard] = useState<AdminDashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState('');
@@ -21,9 +23,15 @@ export default function AdminPage() {
   const [roundMatchups, setRoundMatchups] = useState<Matchup[]>([]);
   const [viewingRound, setViewingRound] = useState<Round | null>(null);
 
+  // Admin management
+  const [admins, setAdmins] = useState<TournamentAdmin[]>([]);
+  const [inviteEmail, setInviteEmail] = useState('');
+  const [inviteError, setInviteError] = useState('');
+  const [inviteSuccess, setInviteSuccess] = useState('');
+
   const loadDashboard = async () => {
     try {
-      const data = await fetchAdminDashboard();
+      const data = await fetchAdminDashboard(tournamentId);
       setDashboard(data);
     } catch (err: any) {
       setError(err.message);
@@ -32,9 +40,19 @@ export default function AdminPage() {
     }
   };
 
+  const loadAdmins = async () => {
+    try {
+      const data = await fetchTournamentAdmins(tournamentId);
+      setAdmins(data);
+    } catch {
+      // ignore — user might not have access
+    }
+  };
+
   useEffect(() => {
     loadDashboard();
-  }, []);
+    loadAdmins();
+  }, [tournamentId]);
 
   const handleAction = async (action: string, fn: () => Promise<any>) => {
     setActionLoading(action);
@@ -44,6 +62,7 @@ export default function AdminPage() {
       const result = await fn();
       setMessage(JSON.stringify(result, null, 2));
       loadDashboard();
+      reload();
     } catch (err: any) {
       setError(err.message);
     } finally {
@@ -54,18 +73,42 @@ export default function AdminPage() {
   const loadRoundMatchups = async (round: Round) => {
     setViewingRound(round);
     try {
-      const data = await fetchRoundMatchups(round.round_number, 0, 100);
+      const data = await fetchRoundMatchups(tournamentId, round.round_number, 0, 100);
       setRoundMatchups(data.matchups);
     } catch (err: any) {
       setError(err.message);
     }
   };
 
-  if (!profile?.is_admin) {
+  const handleInvite = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!inviteEmail.trim()) return;
+    setInviteError('');
+    setInviteSuccess('');
+    try {
+      await inviteAdmin(tournamentId, inviteEmail.trim());
+      setInviteSuccess(`Invited ${inviteEmail} as admin`);
+      setInviteEmail('');
+      loadAdmins();
+    } catch (err: any) {
+      setInviteError(err.message);
+    }
+  };
+
+  const handleRemoveAdmin = async (userId: string) => {
+    try {
+      await removeAdmin(tournamentId, userId);
+      loadAdmins();
+    } catch (err: any) {
+      setInviteError(err.message);
+    }
+  };
+
+  if (!isAdmin) {
     return (
       <div className="page">
         <h2>Access Denied</h2>
-        <p>You don't have admin privileges.</p>
+        <p>You don't have admin privileges for this tournament.</p>
       </div>
     );
   }
@@ -81,9 +124,9 @@ export default function AdminPage() {
         <div className="admin-summary">
           <div className="summary-card">
             <h4>Tournament</h4>
-            <p>{dashboard.tournament?.name || 'None'}</p>
-            <span className={`status-badge status-${dashboard.tournament?.status || 'none'}`}>
-              {dashboard.tournament?.status || 'No tournament'}
+            <p>{dashboard.tournament.name}</p>
+            <span className={`status-badge status-${dashboard.tournament.status}`}>
+              {dashboard.tournament.status}
             </span>
           </div>
           <div className="summary-card">
@@ -120,27 +163,17 @@ export default function AdminPage() {
       <div className="admin-actions">
         <h3>Actions</h3>
 
-        {!dashboard?.tournament && (
+        {dashboard?.tournament.status === 'submission_open' && (
           <button
             className="btn btn-primary"
-            disabled={!!actionLoading}
-            onClick={() => handleAction('create', () => createTournament())}
+            disabled={!!actionLoading || (dashboard?.memes_count ?? 0) < 2}
+            onClick={() => handleAction('seed', () => seedTournament(tournamentId))}
           >
-            {actionLoading === 'create' ? 'Creating...' : 'Create Tournament'}
+            {actionLoading === 'seed' ? 'Seeding...' : `Close Submissions & Seed Bracket (${dashboard?.memes_count} memes)`}
           </button>
         )}
 
-        {dashboard?.tournament?.status === 'submission_open' && (
-          <button
-            className="btn btn-primary"
-            disabled={!!actionLoading || dashboard.memes_count < 2}
-            onClick={() => handleAction('seed', () => seedTournament(dashboard.tournament!.id))}
-          >
-            {actionLoading === 'seed' ? 'Seeding...' : `Close Submissions & Seed Bracket (${dashboard.memes_count} memes)`}
-          </button>
-        )}
-
-        {dashboard?.tournament?.status === 'voting_open' && dashboard.current_round && (
+        {dashboard?.tournament.status === 'voting_open' && dashboard.current_round && (
           <>
             <button
               className="btn btn-accent"
@@ -148,7 +181,7 @@ export default function AdminPage() {
               onClick={() => {
                 const votingRound = dashboard.rounds.find(r => r.status === 'voting');
                 if (votingRound) {
-                  handleAction('close-all', () => closeAllMatchups(votingRound.id));
+                  handleAction('close-all', () => closeAllMatchups(tournamentId, votingRound.id));
                 }
               }}
             >
@@ -158,12 +191,48 @@ export default function AdminPage() {
             <button
               className="btn btn-primary"
               disabled={!!actionLoading}
-              onClick={() => handleAction('advance', () => advanceRound(dashboard.tournament!.id))}
+              onClick={() => handleAction('advance', () => advanceRound(tournamentId))}
             >
               {actionLoading === 'advance' ? 'Advancing...' : 'Advance to Next Round'}
             </button>
           </>
         )}
+      </div>
+
+      {/* Admin Management */}
+      <div className="admin-management">
+        <h3>Tournament Admins</h3>
+        <form className="invite-form" onSubmit={handleInvite}>
+          <input
+            type="email"
+            value={inviteEmail}
+            onChange={(e) => setInviteEmail(e.target.value)}
+            placeholder="Email address to invite as admin"
+            required
+          />
+          <button type="submit" className="btn btn-primary">Invite</button>
+        </form>
+        {inviteError && <div className="error-message">{inviteError}</div>}
+        {inviteSuccess && <div className="success-message">{inviteSuccess}</div>}
+
+        <ul className="admin-list">
+          {admins.map((a) => (
+            <li key={a.id} className="admin-list-item">
+              <div>
+                <strong>{a.profiles?.display_name || a.profiles?.email || 'Unknown'}</strong>
+                <span className="admin-role-tag">{a.role}</span>
+              </div>
+              {a.role !== 'owner' && userRole === 'owner' && (
+                <button
+                  className="btn btn-sm btn-secondary"
+                  onClick={() => handleRemoveAdmin(a.user_id)}
+                >
+                  Remove
+                </button>
+              )}
+            </li>
+          ))}
+        </ul>
       </div>
 
       {/* Round Matchup Inspector */}
@@ -222,14 +291,14 @@ export default function AdminPage() {
                       <span className="tie-label">TIE — Admin decision required:</span>
                       <button
                         className="btn btn-sm"
-                        onClick={() => handleAction(`tiebreak-${m.id}`, () => tieBreak(m.id, m.meme_a_id))}
+                        onClick={() => handleAction(`tiebreak-${m.id}`, () => tieBreak(tournamentId, m.id, m.meme_a_id))}
                         disabled={!!actionLoading}
                       >
                         Pick A
                       </button>
                       <button
                         className="btn btn-sm"
-                        onClick={() => handleAction(`tiebreak-${m.id}`, () => tieBreak(m.id, m.meme_b_id!))}
+                        onClick={() => handleAction(`tiebreak-${m.id}`, () => tieBreak(tournamentId, m.id, m.meme_b_id!))}
                         disabled={!!actionLoading}
                       >
                         Pick B
