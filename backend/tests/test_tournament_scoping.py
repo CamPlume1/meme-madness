@@ -262,7 +262,7 @@ class TestBracketSeedingScoping:
         from app.services.bracket import seed_bracket
 
         # 4 memes for this tournament
-        memes = [{"id": f"meme-{i}"} for i in range(4)]
+        memes = [{"id": f"meme-{i}", "owner_id": f"owner-{i}"} for i in range(4)]
 
         call_tracker = {"table_calls": []}
 
@@ -300,15 +300,15 @@ class TestBracketSeedingScoping:
 
     @patch("app.services.bracket.supabase_admin")
     def test_seed_bracket_too_few_memes_raises(self, mock_sb):
-        """seed_bracket() with < 2 memes should raise ValueError."""
+        """seed_bracket() with < 4 memes should raise ValueError."""
         from app.services.bracket import seed_bracket
 
         chain = MagicMock()
         chain.eq.return_value = chain
-        chain.execute.return_value = _mock_response([{"id": "only-one"}])
+        chain.execute.return_value = _mock_response([{"id": "only-one", "owner_id": "owner-0"}])
         mock_sb.table.return_value.select.return_value = chain
 
-        with pytest.raises(ValueError, match="at least 2 memes"):
+        with pytest.raises(ValueError, match="at least 4 memes"):
             seed_bracket("tournament-lonely")
 
 

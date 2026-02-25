@@ -1,4 +1,4 @@
-"""Tests for the bracket engine: seeding, byes, round generation.
+"""Tests for the bracket engine: seeding, byes, round generation, owner separation.
 
 These tests verify the pure bracket logic using the math/algorithm functions
 from the bracket service, without requiring database connectivity.
@@ -6,7 +6,7 @@ from the bracket service, without requiring database connectivity.
 import math
 import random
 import pytest
-from app.services.bracket import next_power_of_2
+from app.services.bracket import next_power_of_2, _avoid_same_owner_adjacent
 
 
 # ============================================================================
@@ -137,8 +137,8 @@ class TestBracketSeeding:
     """Test bracket seeding across a range of submission counts."""
 
     @pytest.mark.parametrize("num_memes,expected_bracket,expected_byes,expected_rounds", [
-        (2, 2, 0, 1),
-        (3, 4, 1, 2),
+        (4, 4, 0, 2),
+        (5, 8, 3, 3),
         (8, 8, 0, 3),
         (17, 32, 15, 5),
         (50, 64, 14, 6),
@@ -154,19 +154,19 @@ class TestBracketSeeding:
         assert params["total_rounds"] == expected_rounds, \
             f"For {num_memes} memes: expected {expected_rounds} rounds, got {params['total_rounds']}"
 
-    @pytest.mark.parametrize("num_memes", [2, 3, 8, 17, 50, 80, 100])
+    @pytest.mark.parametrize("num_memes", [4, 5, 8, 17, 50, 80, 100])
     def test_round1_matchup_count(self, num_memes):
         """Round 1 should have bracket_size / 2 matchups."""
         params = compute_bracket_params(num_memes)
         assert params["round1_matchups"] == params["bracket_size"] // 2
 
-    @pytest.mark.parametrize("num_memes", [2, 3, 8, 17, 50, 80, 100])
+    @pytest.mark.parametrize("num_memes", [4, 5, 8, 17, 50, 80, 100])
     def test_competing_plus_byes_equals_total(self, num_memes):
         """Competing matchups + byes = total round 1 matchups."""
         params = compute_bracket_params(num_memes)
         assert params["competing_matchups"] + params["num_byes"] == params["round1_matchups"]
 
-    @pytest.mark.parametrize("num_memes", [2, 3, 8, 17, 50, 80, 100])
+    @pytest.mark.parametrize("num_memes", [4, 5, 8, 17, 50, 80, 100])
     def test_competing_matchups_correct(self, num_memes):
         """Competing matchups should use exactly num_memes - num_byes entries, paired."""
         params = compute_bracket_params(num_memes)
@@ -178,20 +178,20 @@ class TestBracketSeeding:
 class TestBracketSimulation:
     """Test full bracket simulation to verify round generation."""
 
-    @pytest.mark.parametrize("num_memes", [2, 3, 8, 17, 50, 80, 100])
+    @pytest.mark.parametrize("num_memes", [4, 5, 8, 17, 50, 80, 100])
     def test_bracket_completes_with_one_winner(self, num_memes):
         """The bracket should reduce to exactly 1 winner."""
         result = simulate_bracket(num_memes)
         assert result["final_winner"] is not None
 
-    @pytest.mark.parametrize("num_memes", [2, 3, 8, 17, 50, 80, 100])
+    @pytest.mark.parametrize("num_memes", [4, 5, 8, 17, 50, 80, 100])
     def test_correct_number_of_rounds(self, num_memes):
         result = simulate_bracket(num_memes)
         expected_rounds = int(math.log2(next_power_of_2(num_memes)))
         assert result["total_rounds"] == expected_rounds
         assert len(result["rounds"]) == expected_rounds
 
-    @pytest.mark.parametrize("num_memes", [2, 3, 8, 17, 50, 80, 100])
+    @pytest.mark.parametrize("num_memes", [4, 5, 8, 17, 50, 80, 100])
     def test_matchup_counts_halve_each_round(self, num_memes):
         """Each round should have half the matchups of the previous round."""
         result = simulate_bracket(num_memes)
@@ -202,24 +202,12 @@ class TestBracketSimulation:
                 f"Round {r}: expected {prev_matchups // 2} matchups, got {current_matchups}"
             prev_matchups = current_matchups
 
-    @pytest.mark.parametrize("num_memes", [2, 3, 8, 17, 50, 80, 100])
+    @pytest.mark.parametrize("num_memes", [4, 5, 8, 17, 50, 80, 100])
     def test_final_round_has_one_matchup(self, num_memes):
         """The final round should have exactly 1 matchup."""
         result = simulate_bracket(num_memes)
         final_round = result["rounds"][result["total_rounds"]]
         assert final_round["total_matchups"] == 1
-
-    def test_2_memes_no_byes(self):
-        result = simulate_bracket(2)
-        assert result["rounds"][1]["byes"] == 0
-        assert result["rounds"][1]["competing"] == 1
-        assert result["total_rounds"] == 1
-
-    def test_3_memes_one_bye(self):
-        result = simulate_bracket(3)
-        assert result["rounds"][1]["byes"] == 1
-        assert result["rounds"][1]["competing"] == 1
-        assert result["total_rounds"] == 2
 
     def test_8_memes_no_byes(self):
         result = simulate_bracket(8)
@@ -250,6 +238,190 @@ class TestBracketSimulation:
         assert result["bracket_size"] == 128
         assert result["rounds"][1]["byes"] == 28
         assert result["rounds"][1]["total_matchups"] == 64
+
+
+# ============================================================================
+# Test Owner Separation Helper
+# ============================================================================
+
+class TestOwnerSeparation:
+    """Unit tests for _avoid_same_owner_adjacent."""
+
+    def test_already_separated(self):
+        """Input with no adjacent same-owner memes stays unchanged."""
+        memes = [
+            {"id": "a", "owner_id": "1"},
+            {"id": "b", "owner_id": "2"},
+            {"id": "c", "owner_id": "1"},
+            {"id": "d", "owner_id": "2"},
+        ]
+        original = [m["id"] for m in memes]
+        _avoid_same_owner_adjacent(memes)
+        # No adjacent same-owner — order may stay the same
+        for i in range(len(memes) - 1):
+            assert memes[i]["owner_id"] != memes[i + 1]["owner_id"]
+
+    def test_adjacent_same_owner_swapped(self):
+        """Adjacent same-owner memes get swapped apart."""
+        memes = [
+            {"id": "a", "owner_id": "1"},
+            {"id": "b", "owner_id": "1"},
+            {"id": "c", "owner_id": "2"},
+            {"id": "d", "owner_id": "3"},
+        ]
+        _avoid_same_owner_adjacent(memes)
+        for i in range(len(memes) - 1):
+            assert memes[i]["owner_id"] != memes[i + 1]["owner_id"]
+
+    def test_only_two_same_owner_graceful(self):
+        """When only 2 memes exist and they share an owner, can't separate — no crash."""
+        memes = [
+            {"id": "a", "owner_id": "1"},
+            {"id": "b", "owner_id": "1"},
+        ]
+        _avoid_same_owner_adjacent(memes)
+        # Should not crash; still adjacent since no swap target exists
+        assert len(memes) == 2
+
+    def test_empty_list(self):
+        """Empty list should not crash."""
+        memes = []
+        _avoid_same_owner_adjacent(memes)
+        assert memes == []
+
+    def test_single_element(self):
+        """Single element list should not crash."""
+        memes = [{"id": "a", "owner_id": "1"}]
+        _avoid_same_owner_adjacent(memes)
+        assert len(memes) == 1
+
+
+# ============================================================================
+# Test Half Assignment (owner-aware bracket halves)
+# ============================================================================
+
+class TestHalfAssignment:
+    """Test that same-owner pairs are placed in the same bracket half."""
+
+    def _distribute_halves(self, num_memes, pairs_config):
+        """Simulate the half-assignment logic from seed_bracket.
+
+        pairs_config: list of (owner_id, count) tuples.
+        Remaining memes are singles with unique owners.
+        """
+        from collections import defaultdict
+
+        memes = []
+        owner_map = defaultdict(list)
+        meme_idx = 0
+        for owner_id, count in pairs_config:
+            for _ in range(count):
+                m = {"id": f"meme-{meme_idx}", "owner_id": owner_id}
+                memes.append(m)
+                owner_map[owner_id].append(m)
+                meme_idx += 1
+
+        # Fill remaining with unique-owner singles
+        while len(memes) < num_memes:
+            owner_id = f"single-{meme_idx}"
+            m = {"id": f"meme-{meme_idx}", "owner_id": owner_id}
+            memes.append(m)
+            owner_map[owner_id].append(m)
+            meme_idx += 1
+
+        pairs = []
+        singles = []
+        for oid, owned in owner_map.items():
+            if len(owned) == 2:
+                pairs.append(owned)
+            else:
+                singles.extend(owned)
+
+        random.shuffle(pairs)
+        random.shuffle(singles)
+
+        bracket_size = next_power_of_2(num_memes)
+        half_capacity = bracket_size // 2
+        half_a_cap = half_capacity // 2
+        half_b_cap = half_capacity - half_a_cap
+
+        half_a = []
+        half_b = []
+
+        for pair in pairs:
+            if len(half_a) + 2 <= half_a_cap:
+                half_a.extend(pair)
+            elif len(half_b) + 2 <= half_b_cap:
+                half_b.extend(pair)
+            elif len(half_a) <= len(half_b):
+                half_a.extend(pair)
+            else:
+                half_b.extend(pair)
+
+        for meme in singles:
+            if len(half_a) < half_a_cap:
+                half_a.append(meme)
+            elif len(half_b) < half_b_cap:
+                half_b.append(meme)
+            elif len(half_a) <= len(half_b):
+                half_a.append(meme)
+            else:
+                half_b.append(meme)
+
+        return half_a, half_b
+
+    def test_single_pair_same_half(self):
+        """A pair of memes from the same owner should be in the same half."""
+        for _ in range(20):  # Run multiple times for randomness
+            half_a, half_b = self._distribute_halves(8, [("owner-X", 2)])
+            ids_a = {m["owner_id"] for m in half_a}
+            ids_b = {m["owner_id"] for m in half_b}
+            # owner-X should be in one half, not split
+            x_in_a = sum(1 for m in half_a if m["owner_id"] == "owner-X")
+            x_in_b = sum(1 for m in half_b if m["owner_id"] == "owner-X")
+            assert (x_in_a == 2 and x_in_b == 0) or (x_in_a == 0 and x_in_b == 2), \
+                f"owner-X split across halves: {x_in_a} in A, {x_in_b} in B"
+
+    def test_multiple_pairs_same_half(self):
+        """Multiple pairs should each be fully in one half."""
+        for _ in range(20):
+            half_a, half_b = self._distribute_halves(16, [
+                ("owner-A", 2), ("owner-B", 2), ("owner-C", 2),
+            ])
+            for owner in ["owner-A", "owner-B", "owner-C"]:
+                in_a = sum(1 for m in half_a if m["owner_id"] == owner)
+                in_b = sum(1 for m in half_b if m["owner_id"] == owner)
+                assert (in_a == 2 and in_b == 0) or (in_a == 0 and in_b == 2), \
+                    f"{owner} split: {in_a} in A, {in_b} in B"
+
+    def test_all_singles_balanced(self):
+        """With no pairs, halves should be roughly balanced."""
+        half_a, half_b = self._distribute_halves(8, [])
+        assert abs(len(half_a) - len(half_b)) <= 1
+
+    def test_finals_cannot_be_same_owner(self):
+        """Same-owner memes in the same half means they can't meet in the finals.
+
+        Run many simulations: the pair is always in one half, so the two
+        finalists are always from different halves.
+        """
+        for _ in range(50):
+            half_a, half_b = self._distribute_halves(8, [("owner-X", 2)])
+            owners_a = {m["owner_id"] for m in half_a}
+            owners_b = {m["owner_id"] for m in half_b}
+            # The pair must be entirely in one half
+            x_in_a = sum(1 for m in half_a if m["owner_id"] == "owner-X")
+            x_in_b = sum(1 for m in half_b if m["owner_id"] == "owner-X")
+            assert x_in_a == 0 or x_in_b == 0, \
+                "owner-X memes should not be split across halves"
+
+    def test_4_memes_1_pair(self):
+        """With 4 memes and 1 pair, bracket_size=4, pair goes to one half."""
+        for _ in range(20):
+            half_a, half_b = self._distribute_halves(4, [("owner-X", 2)])
+            x_in_a = sum(1 for m in half_a if m["owner_id"] == "owner-X")
+            x_in_b = sum(1 for m in half_b if m["owner_id"] == "owner-X")
+            assert (x_in_a == 2 and x_in_b == 0) or (x_in_a == 0 and x_in_b == 2)
 
 
 # ============================================================================
