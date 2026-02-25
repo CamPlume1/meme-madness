@@ -3,6 +3,9 @@ from app.auth import get_current_user, verify_membership
 from app.supabase_client import supabase_admin
 from app.config import SUPABASE_URL
 import uuid
+import logging
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -142,3 +145,73 @@ async def upload_meme(
     }).execute()
 
     return meme.data[0]
+
+
+@router.delete("/{meme_id}")
+async def delete_meme(
+    meme_id: str,
+    tournament_id: str = Query(...),
+    user: dict = Depends(get_current_user),
+):
+    """Delete a meme submission. Only allowed while tournament is in submission_open status.
+    Owner can delete their own meme; tournament admins can delete any meme."""
+    # Fetch the meme
+    meme_result = (
+        supabase_admin.table("memes")
+        .select("*")
+        .eq("id", meme_id)
+        .eq("tournament_id", tournament_id)
+        .maybe_single()
+        .execute()
+    )
+    meme = meme_result.data if meme_result else None
+
+    if not meme:
+        raise HTTPException(status_code=404, detail="Meme not found")
+
+    # Check tournament status
+    t_result = (
+        supabase_admin.table("tournament")
+        .select("status")
+        .eq("id", tournament_id)
+        .maybe_single()
+        .execute()
+    )
+    tournament = t_result.data if t_result else None
+
+    if not tournament or tournament["status"] != "submission_open":
+        raise HTTPException(
+            status_code=400,
+            detail="Memes can only be deleted while submissions are open",
+        )
+
+    # Auth: owner can delete own meme; admins can delete any
+    if meme["owner_id"] != user["id"]:
+        admin_result = (
+            supabase_admin.table("tournament_admins")
+            .select("id")
+            .eq("tournament_id", tournament_id)
+            .eq("user_id", user["id"])
+            .maybe_single()
+            .execute()
+        )
+        is_admin = admin_result and admin_result.data
+        if not is_admin:
+            raise HTTPException(
+                status_code=403,
+                detail="You can only delete your own memes",
+            )
+
+    # Delete image from Supabase Storage
+    storage_prefix = f"{SUPABASE_URL}/storage/v1/object/public/memes/"
+    if meme["image_url"].startswith(storage_prefix):
+        file_path = meme["image_url"][len(storage_prefix):]
+        try:
+            supabase_admin.storage.from_("memes").remove([file_path])
+        except Exception as e:
+            logger.warning("Failed to delete storage file %s: %s", file_path, e)
+
+    # Hard delete the meme row
+    supabase_admin.table("memes").delete().eq("id", meme_id).execute()
+
+    return {"ok": True, "deleted_id": meme_id}

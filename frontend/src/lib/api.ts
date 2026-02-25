@@ -55,6 +55,8 @@ export const fetchMyMemes = (tournamentId?: string) =>
   apiFetch(`/memes/mine${tournamentId ? `?tournament_id=${tournamentId}` : ''}`);
 export const uploadMeme = (formData: FormData) =>
   apiFetch('/memes/upload', { method: 'POST', body: formData });
+export const deleteMeme = (memeId: string, tournamentId: string) =>
+  apiFetch(`/memes/${memeId}?tournament_id=${tournamentId}`, { method: 'DELETE' });
 
 // Voting (matchup-level, no tournament ID needed)
 export const castVote = (matchupId: string, memeId: string) =>

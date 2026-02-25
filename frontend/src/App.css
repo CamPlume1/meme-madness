@@ -1029,6 +1029,27 @@
   user-select: all;
 }
 
+/* === Danger Button === */
+
+.btn-danger {
+  background: #dc2626;
+  color: #fff;
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+  border-radius: var(--radius);
+  transition: background 0.2s;
+}
+
+.btn-danger:hover {
+  background: #b91c1c;
+}
+
+.btn-danger:disabled {
+  background: #fca5a5;
+  cursor: not-allowed;
+}
+
 /* === Member Role Badge === */
 
 .role-badge.role-member {

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { uploadMeme, fetchMyMemes } from '../lib/api';
+import { uploadMeme, fetchMyMemes, deleteMeme } from '../lib/api';
 import { Meme } from '../types';
 import { useTournament } from './TournamentLayout';
 
@@ -10,6 +10,7 @@ export default function SubmitPage() {
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
 
@@ -57,6 +58,20 @@ export default function SubmitPage() {
       setError(err.message);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleDelete = async (memeId: string) => {
+    if (!confirm('Are you sure you want to delete this meme?')) return;
+    setDeleting(memeId);
+    setError('');
+    try {
+      await deleteMeme(memeId, tournamentId);
+      loadData();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setDeleting(null);
     }
   };
 
@@ -142,6 +157,15 @@ export default function SubmitPage() {
                     {meme.tournament_status === 'advanced' && 'Advanced'}
                     {meme.tournament_status === 'not_in_bracket' && 'Awaiting Bracket'}
                   </span>
+                )}
+                {submissionsOpen && (
+                  <button
+                    className="btn btn-danger btn-sm"
+                    onClick={() => handleDelete(meme.id)}
+                    disabled={deleting === meme.id}
+                  >
+                    {deleting === meme.id ? 'Deleting...' : 'Delete'}
+                  </button>
                 )}
               </div>
             </div>

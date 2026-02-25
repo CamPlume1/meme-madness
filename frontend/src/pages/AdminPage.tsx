@@ -13,8 +13,10 @@ import {
   regenerateJoinCode,
   fetchTournamentMembers,
   removeMember,
+  fetchAllMemes,
+  deleteMeme,
 } from '../lib/api';
-import { AdminDashboard, Matchup, Round, TournamentAdmin, TournamentMember } from '../types';
+import { AdminDashboard, Matchup, Meme, Round, TournamentAdmin, TournamentMember } from '../types';
 import { useTournament } from './TournamentLayout';
 
 export default function AdminPage() {
@@ -40,6 +42,10 @@ export default function AdminPage() {
 
   // Members
   const [members, setMembers] = useState<TournamentMember[]>([]);
+
+  // Submissions (memes)
+  const [allMemes, setAllMemes] = useState<Meme[]>([]);
+  const [deletingMeme, setDeletingMeme] = useState<string | null>(null);
 
   const loadDashboard = async () => {
     try {
@@ -79,11 +85,21 @@ export default function AdminPage() {
     }
   };
 
+  const loadMemes = async () => {
+    try {
+      const data = await fetchAllMemes(tournamentId);
+      setAllMemes(data);
+    } catch {
+      // ignore
+    }
+  };
+
   useEffect(() => {
     loadDashboard();
     loadAdmins();
     loadJoinCode();
     loadMembers();
+    loadMemes();
   }, [tournamentId]);
 
   const handleAction = async (action: string, fn: () => Promise<any>) => {
@@ -161,6 +177,20 @@ export default function AdminPage() {
       loadMembers();
     } catch (err: any) {
       setError(err.message);
+    }
+  };
+
+  const handleDeleteMeme = async (memeId: string) => {
+    if (!confirm('Are you sure you want to delete this meme submission?')) return;
+    setDeletingMeme(memeId);
+    try {
+      await deleteMeme(memeId, tournamentId);
+      loadMemes();
+      loadDashboard();
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setDeletingMeme(null);
     }
   };
 
@@ -277,6 +307,43 @@ export default function AdminPage() {
           </>
         )}
       </div>
+
+      {/* Submissions Section — only during submission phase */}
+      {dashboard?.tournament.status === 'submission_open' && (
+        <div className="admin-management">
+          <h3>Submissions ({allMemes.length})</h3>
+          {allMemes.length === 0 ? (
+            <p className="empty-state">No memes submitted yet.</p>
+          ) : (
+            <ul className="admin-list">
+              {allMemes.map((meme) => (
+                <li key={meme.id} className="admin-list-item">
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                    <img
+                      src={meme.image_url}
+                      alt={meme.title || 'Meme'}
+                      style={{ width: 40, height: 40, borderRadius: 6, objectFit: 'cover' }}
+                    />
+                    <div>
+                      <strong>{meme.title || 'Untitled'}</strong>
+                      <span className="admin-role-tag">
+                        {meme.profiles?.display_name || 'Unknown'}
+                      </span>
+                    </div>
+                  </div>
+                  <button
+                    className="btn btn-sm btn-danger"
+                    onClick={() => handleDeleteMeme(meme.id)}
+                    disabled={deletingMeme === meme.id}
+                  >
+                    {deletingMeme === meme.id ? 'Deleting...' : 'Delete'}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
 
       {/* Members Section */}
       <div className="admin-management">
