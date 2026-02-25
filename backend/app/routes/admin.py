@@ -336,32 +336,33 @@ async def invite_admin(
     admin: dict = Depends(require_tournament_admin),
 ):
     """Invite another user as an admin by email."""
-    profile = (
+    profile_result = (
         supabase_admin.table("profiles")
         .select("id, email")
         .eq("email", body.email)
         .maybe_single()
         .execute()
     )
+    profile_data = profile_result.data if profile_result else None
 
-    if not profile.data:
+    if not profile_data:
         raise HTTPException(status_code=404, detail="No user found with that email")
 
-    existing = (
+    existing_result = (
         supabase_admin.table("tournament_admins")
         .select("id")
         .eq("tournament_id", tournament_id)
-        .eq("user_id", profile.data["id"])
+        .eq("user_id", profile_data["id"])
         .maybe_single()
         .execute()
     )
 
-    if existing.data:
+    if existing_result and existing_result.data:
         raise HTTPException(status_code=400, detail="User is already an admin of this tournament")
 
     supabase_admin.table("tournament_admins").insert({
         "tournament_id": tournament_id,
-        "user_id": profile.data["id"],
+        "user_id": profile_data["id"],
         "role": "admin",
         "invited_by": admin["id"],
     }).execute()

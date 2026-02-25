@@ -88,13 +88,14 @@ async def upload_meme(
 ):
     """Upload a meme image to a specific tournament. Max 2 per user per tournament."""
     # Check tournament status
-    tournament = (
+    t_result = (
         supabase_admin.table("tournament")
         .select("*")
         .eq("id", tournament_id)
         .maybe_single()
         .execute()
-    ).data
+    )
+    tournament = t_result.data if t_result else None
 
     if not tournament:
         raise HTTPException(status_code=404, detail="Tournament not found")

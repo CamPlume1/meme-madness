@@ -16,21 +16,22 @@ async def join_tournament(body: JoinRequest, user: dict = Depends(get_current_us
     code = body.join_code.strip().upper()
 
     # Look up tournament by join code
-    t = (
+    t_result = (
         supabase_admin.table("tournament")
         .select("id, name")
         .eq("join_code", code)
         .maybe_single()
         .execute()
     )
+    t_data = t_result.data if t_result else None
 
-    if not t.data:
+    if not t_data:
         raise HTTPException(status_code=404, detail="Invalid join code")
 
-    tournament_id = t.data["id"]
+    tournament_id = t_data["id"]
 
     # Check if already an admin (implicit member)
-    admin_row = (
+    admin_result = (
         supabase_admin.table("tournament_admins")
         .select("id")
         .eq("tournament_id", tournament_id)
@@ -38,11 +39,11 @@ async def join_tournament(body: JoinRequest, user: dict = Depends(get_current_us
         .maybe_single()
         .execute()
     )
-    if admin_row.data:
-        return {"tournament_id": tournament_id, "name": t.data["name"], "already_member": True}
+    if admin_result and admin_result.data:
+        return {"tournament_id": tournament_id, "name": t_data["name"], "already_member": True}
 
     # Check if already a member
-    existing = (
+    existing_result = (
         supabase_admin.table("tournament_members")
         .select("id")
         .eq("tournament_id", tournament_id)
@@ -50,8 +51,8 @@ async def join_tournament(body: JoinRequest, user: dict = Depends(get_current_us
         .maybe_single()
         .execute()
     )
-    if existing.data:
-        return {"tournament_id": tournament_id, "name": t.data["name"], "already_member": True}
+    if existing_result and existing_result.data:
+        return {"tournament_id": tournament_id, "name": t_data["name"], "already_member": True}
 
     # Insert membership
     supabase_admin.table("tournament_members").insert({
@@ -59,4 +60,4 @@ async def join_tournament(body: JoinRequest, user: dict = Depends(get_current_us
         "user_id": user["id"],
     }).execute()
 
-    return {"tournament_id": tournament_id, "name": t.data["name"], "already_member": False}
+    return {"tournament_id": tournament_id, "name": t_data["name"], "already_member": False}

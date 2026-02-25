@@ -8,20 +8,21 @@ router = APIRouter()
 
 async def _get_tournament_from_matchup(matchup_id: str) -> str:
     """Resolve matchup -> round -> tournament_id."""
-    matchup = (
+    matchup_result = (
         supabase_admin.table("matchups")
         .select("round_id")
         .eq("id", matchup_id)
         .maybe_single()
         .execute()
     )
-    if not matchup.data:
+    matchup_data = matchup_result.data if matchup_result else None
+    if not matchup_data:
         raise HTTPException(status_code=404, detail="Matchup not found")
 
     round_row = (
         supabase_admin.table("rounds")
         .select("tournament_id")
-        .eq("id", matchup.data["round_id"])
+        .eq("id", matchup_data["round_id"])
         .single()
         .execute()
     )

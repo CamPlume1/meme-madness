@@ -55,10 +55,11 @@ async def get_tournament(tournament_id: str, user: dict = Depends(require_tourna
         .maybe_single()
         .execute()
     )
-    if not result.data:
+    t_data = result.data if result else None
+    if not t_data:
         raise HTTPException(status_code=404, detail="Tournament not found")
 
-    t = result.data
+    t = t_data
     t["user_role"] = user.get("tournament_role")
     return t
 
@@ -86,7 +87,7 @@ async def get_round_matchups(
 ):
     """Get matchups for a specific round, with pagination.
     Includes meme details and vote counts."""
-    round_row = (
+    round_result = (
         supabase_admin.table("rounds")
         .select("id, status")
         .eq("tournament_id", tournament_id)
@@ -94,14 +95,15 @@ async def get_round_matchups(
         .maybe_single()
         .execute()
     )
+    round_data = round_result.data if round_result else None
 
-    if not round_row.data:
+    if not round_data:
         raise HTTPException(status_code=404, detail="Round not found")
 
     matchups = (
         supabase_admin.table("matchups")
         .select("*, meme_a:memes!matchups_meme_a_id_fkey(id, title, image_url, owner_id), meme_b:memes!matchups_meme_b_id_fkey(id, title, image_url, owner_id)")
-        .eq("round_id", round_row.data["id"])
+        .eq("round_id", round_data["id"])
         .order("position")
         .range(offset, offset + limit - 1)
         .execute()
@@ -110,7 +112,7 @@ async def get_round_matchups(
     count_result = (
         supabase_admin.table("matchups")
         .select("id", count="exact")
-        .eq("round_id", round_row.data["id"])
+        .eq("round_id", round_data["id"])
         .execute()
     )
 
@@ -130,7 +132,7 @@ async def get_round_matchups(
 
     return {
         "round_number": round_number,
-        "round_status": round_row.data["status"],
+        "round_status": round_data["status"],
         "matchups": matchups.data,
         "total": count_result.count,
         "offset": offset,
@@ -148,10 +150,11 @@ async def get_bracket(tournament_id: str, user: dict = Depends(require_tournamen
         .maybe_single()
         .execute()
     )
-    if not t_result.data:
+    t_data = t_result.data if t_result else None
+    if not t_data:
         raise HTTPException(status_code=404, detail="Tournament not found")
 
-    t = t_result.data
+    t = t_data
 
     rounds = (
         supabase_admin.table("rounds")

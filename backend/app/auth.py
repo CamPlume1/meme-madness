@@ -38,18 +38,19 @@ async def get_current_user(request: Request) -> dict:
     user_id = user_data["id"]
 
     # Fetch the profile
-    profile = (
+    profile_result = (
         supabase_admin.table("profiles")
         .select("*")
         .eq("id", user_id)
         .maybe_single()
         .execute()
     )
+    profile_data = profile_result.data if profile_result else None
 
-    if not profile.data:
+    if not profile_data:
         raise HTTPException(status_code=404, detail="Profile not found")
 
-    return profile.data
+    return profile_data
 
 
 async def require_tournament_admin(request: Request) -> dict:
@@ -61,7 +62,7 @@ async def require_tournament_admin(request: Request) -> dict:
     if not tournament_id:
         raise HTTPException(status_code=400, detail="tournament_id path parameter required")
 
-    admin_row = (
+    admin_result = (
         supabase_admin.table("tournament_admins")
         .select("id, role")
         .eq("tournament_id", tournament_id)
@@ -69,18 +70,19 @@ async def require_tournament_admin(request: Request) -> dict:
         .maybe_single()
         .execute()
     )
+    admin_data = admin_result.data if admin_result else None
 
-    if not admin_row.data:
+    if not admin_data:
         raise HTTPException(status_code=403, detail="You are not an admin of this tournament")
 
-    user["tournament_role"] = admin_row.data["role"]
+    user["tournament_role"] = admin_data["role"]
     return user
 
 
 async def verify_membership(user_id: str, tournament_id: str) -> None:
     """Check that user_id is an admin or member of tournament_id.
     Raises 403 if neither. Used for query-param-based routes."""
-    admin_row = (
+    admin_result = (
         supabase_admin.table("tournament_admins")
         .select("id")
         .eq("tournament_id", tournament_id)
@@ -88,10 +90,10 @@ async def verify_membership(user_id: str, tournament_id: str) -> None:
         .maybe_single()
         .execute()
     )
-    if admin_row.data:
+    if admin_result and admin_result.data:
         return
 
-    member_row = (
+    member_result = (
         supabase_admin.table("tournament_members")
         .select("id")
         .eq("tournament_id", tournament_id)
@@ -99,7 +101,7 @@ async def verify_membership(user_id: str, tournament_id: str) -> None:
         .maybe_single()
         .execute()
     )
-    if member_row.data:
+    if member_result and member_result.data:
         return
 
     raise HTTPException(status_code=403, detail="You are not a member of this tournament")
@@ -115,7 +117,7 @@ async def require_tournament_member(request: Request) -> dict:
         raise HTTPException(status_code=400, detail="tournament_id path parameter required")
 
     # Check admin table first (admins are implicit members)
-    admin_row = (
+    admin_result = (
         supabase_admin.table("tournament_admins")
         .select("id, role")
         .eq("tournament_id", tournament_id)
@@ -124,12 +126,12 @@ async def require_tournament_member(request: Request) -> dict:
         .execute()
     )
 
-    if admin_row.data:
-        user["tournament_role"] = admin_row.data["role"]
+    if admin_result and admin_result.data:
+        user["tournament_role"] = admin_result.data["role"]
         return user
 
     # Check members table
-    member_row = (
+    member_result = (
         supabase_admin.table("tournament_members")
         .select("id")
         .eq("tournament_id", tournament_id)
@@ -138,7 +140,7 @@ async def require_tournament_member(request: Request) -> dict:
         .execute()
     )
 
-    if member_row.data:
+    if member_result and member_result.data:
         user["tournament_role"] = "member"
         return user
 
