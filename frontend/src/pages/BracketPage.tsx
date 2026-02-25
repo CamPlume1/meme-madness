@@ -1,9 +1,34 @@
 import { useState, useEffect } from 'react';
 import { fetchBracket } from '../lib/api';
-import { BracketData, Matchup } from '../types';
+import { BracketData, Matchup, Meme } from '../types';
 import { useTournament } from './TournamentLayout';
 
-function MatchupCard({ matchup, compact }: { matchup: Matchup; compact?: boolean }) {
+function MemeModal({ meme, onClose }: { meme: Meme; onClose: () => void }) {
+  useEffect(() => {
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [onClose]);
+
+  return (
+    <div className="meme-modal-overlay" onClick={onClose}>
+      <div className="meme-modal" onClick={(e) => e.stopPropagation()}>
+        <button className="meme-modal-close" onClick={onClose}>&times;</button>
+        <img src={meme.image_url} alt={meme.title || 'Meme'} className="meme-modal-image" />
+        <div className="meme-modal-info">
+          <h3>{meme.title || 'Untitled'}</h3>
+          {meme.profiles?.display_name && (
+            <p className="meme-modal-author">by {meme.profiles.display_name}</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MatchupCard({ matchup, compact, onMemeClick }: { matchup: Matchup; compact?: boolean; onMemeClick: (meme: Meme) => void }) {
   const isBye = !matchup.meme_b_id;
   const isComplete = matchup.status === 'complete';
 
@@ -12,8 +37,13 @@ function MatchupCard({ matchup, compact }: { matchup: Matchup; compact?: boolean
       <div className={`matchup-entry ${isComplete && matchup.winner_id === matchup.meme_a_id ? 'winner' : ''}`}>
         {matchup.meme_a ? (
           <>
-            <img src={matchup.meme_a.image_url} alt={matchup.meme_a.title || 'Meme A'} className="matchup-thumb" />
-            <span className="matchup-name">{matchup.meme_a.title || 'Untitled'}</span>
+            <img
+              src={matchup.meme_a.image_url}
+              alt={matchup.meme_a.title || 'Meme A'}
+              className="matchup-thumb clickable"
+              onClick={() => onMemeClick(matchup.meme_a!)}
+            />
+            <span className="matchup-name clickable" onClick={() => onMemeClick(matchup.meme_a!)}>{matchup.meme_a.title || 'Untitled'}</span>
           </>
         ) : (
           <span className="matchup-name">TBD</span>
@@ -28,8 +58,13 @@ function MatchupCard({ matchup, compact }: { matchup: Matchup; compact?: boolean
           <span className="matchup-name bye-label">Auto-advance</span>
         ) : matchup.meme_b ? (
           <>
-            <img src={matchup.meme_b.image_url} alt={matchup.meme_b.title || 'Meme B'} className="matchup-thumb" />
-            <span className="matchup-name">{matchup.meme_b.title || 'Untitled'}</span>
+            <img
+              src={matchup.meme_b.image_url}
+              alt={matchup.meme_b.title || 'Meme B'}
+              className="matchup-thumb clickable"
+              onClick={() => onMemeClick(matchup.meme_b!)}
+            />
+            <span className="matchup-name clickable" onClick={() => onMemeClick(matchup.meme_b!)}>{matchup.meme_b.title || 'Untitled'}</span>
           </>
         ) : (
           <span className="matchup-name">TBD</span>
@@ -45,6 +80,7 @@ export default function BracketPage() {
   const [bracket, setBracket] = useState<BracketData | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeRound, setActiveRound] = useState(1);
+  const [selectedMeme, setSelectedMeme] = useState<Meme | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -118,7 +154,7 @@ export default function BracketPage() {
                 </h3>
                 <div className="matchup-list">
                   {r.matchups.map((m) => (
-                    <MatchupCard key={m.id} matchup={m} />
+                    <MatchupCard key={m.id} matchup={m} onMemeClick={setSelectedMeme} />
                   ))}
                 </div>
               </div>
@@ -135,7 +171,7 @@ export default function BracketPage() {
               </h3>
               <div className="matchup-col">
                 {r.matchups.map((m) => (
-                  <MatchupCard key={m.id} matchup={m} compact />
+                  <MatchupCard key={m.id} matchup={m} compact onMemeClick={setSelectedMeme} />
                 ))}
               </div>
             </div>
@@ -161,6 +197,10 @@ export default function BracketPage() {
             </div>
           )}
         </div>
+      )}
+
+      {selectedMeme && (
+        <MemeModal meme={selectedMeme} onClose={() => setSelectedMeme(null)} />
       )}
     </div>
   );
