@@ -116,19 +116,27 @@ async def get_round_matchups(
         .execute()
     )
 
-    # Attach vote counts
+    # Check if user is a tournament admin
+    is_admin = user.get("tournament_role") in ("owner", "admin")
+
+    # Attach vote counts — only for admins or completed matchups
     for matchup in matchups.data:
-        votes = (
-            supabase_admin.table("votes")
-            .select("meme_id")
-            .eq("matchup_id", matchup["id"])
-            .execute()
-        ).data
-        votes_a = sum(1 for v in votes if v["meme_id"] == matchup["meme_a_id"])
-        votes_b = sum(1 for v in votes if matchup["meme_b_id"] and v["meme_id"] == matchup["meme_b_id"])
-        matchup["votes_a"] = votes_a
-        matchup["votes_b"] = votes_b
-        matchup["total_votes"] = len(votes)
+        if is_admin or matchup["status"] == "complete":
+            votes = (
+                supabase_admin.table("votes")
+                .select("meme_id")
+                .eq("matchup_id", matchup["id"])
+                .execute()
+            ).data
+            votes_a = sum(1 for v in votes if v["meme_id"] == matchup["meme_a_id"])
+            votes_b = sum(1 for v in votes if matchup["meme_b_id"] and v["meme_id"] == matchup["meme_b_id"])
+            matchup["votes_a"] = votes_a
+            matchup["votes_b"] = votes_b
+            matchup["total_votes"] = len(votes)
+        else:
+            matchup["votes_a"] = None
+            matchup["votes_b"] = None
+            matchup["total_votes"] = None
 
     return {
         "round_number": round_number,

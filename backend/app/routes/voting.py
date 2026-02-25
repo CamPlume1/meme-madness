@@ -112,19 +112,13 @@ async def get_my_vote(matchup_id: str, user: dict = Depends(get_current_user)):
 
 @router.get("/matchup/{matchup_id}/results")
 async def get_matchup_results(matchup_id: str, user: dict = Depends(get_current_user)):
-    """Get vote counts for a matchup. Only returns counts if user has voted."""
+    """Get vote counts for a matchup.
+
+    Non-admin users can only see counts once the matchup is complete.
+    Admins can always see counts.
+    """
     tournament_id = await _get_tournament_from_matchup(matchup_id)
     await verify_membership(user["id"], tournament_id)
-
-    # Check if user has voted
-    my_vote = (
-        supabase_admin.table("votes")
-        .select("id")
-        .eq("matchup_id", matchup_id)
-        .eq("voter_id", user["id"])
-        .maybe_single()
-        .execute()
-    )
 
     matchup = (
         supabase_admin.table("matchups")
@@ -134,18 +128,22 @@ async def get_matchup_results(matchup_id: str, user: dict = Depends(get_current_
         .execute()
     ).data
 
-    # Check if user owns one of the memes (owners can see counts)
-    meme_a = supabase_admin.table("memes").select("owner_id").eq("id", matchup["meme_a_id"]).single().execute().data
-    is_owner = meme_a["owner_id"] == user["id"]
-    if not is_owner and matchup["meme_b_id"]:
-        meme_b = supabase_admin.table("memes").select("owner_id").eq("id", matchup["meme_b_id"]).single().execute().data
-        is_owner = meme_b["owner_id"] == user["id"]
-
-    has_voted = (my_vote.data is not None) if my_vote else False
     is_complete = matchup["status"] == "complete"
 
-    if not has_voted and not is_complete and not is_owner:
-        return {"can_see_results": False, "message": "Vote first to see results"}
+    # Check if user is a tournament admin
+    admin_result = (
+        supabase_admin.table("tournament_admins")
+        .select("id")
+        .eq("tournament_id", tournament_id)
+        .eq("user_id", user["id"])
+        .maybe_single()
+        .execute()
+    )
+    is_admin = admin_result and admin_result.data
+
+    # Non-admins can only see results after matchup is complete
+    if not is_complete and not is_admin:
+        return {"can_see_results": False, "message": "Results are available after voting ends"}
 
     votes = (
         supabase_admin.table("votes")
