@@ -37,7 +37,7 @@ export default function SubmitPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!file) return;
+    if (!file || !title.trim()) return;
     setLoading(true);
     setError('');
     setSuccess('');
@@ -98,13 +98,14 @@ export default function SubmitPage() {
       {submissionsOpen && !atLimit && (
         <form className="upload-form" onSubmit={handleSubmit}>
           <div className="form-group">
-            <label htmlFor="title">Meme Title (optional)</label>
+            <label htmlFor="title">Meme Title</label>
             <input
               id="title"
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
               placeholder="Give your meme a name..."
+              required
             />
           </div>
 
@@ -128,7 +129,7 @@ export default function SubmitPage() {
           {error && <div className="error-message">{error}</div>}
           {success && <div className="success-message">{success}</div>}
 
-          <button type="submit" className="btn btn-primary" disabled={loading || !file}>
+          <button type="submit" className="btn btn-primary" disabled={loading || !file || !title.trim()}>
             {loading ? 'Uploading...' : 'Submit Meme'}
           </button>
 

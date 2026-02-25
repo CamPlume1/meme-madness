@@ -84,12 +84,16 @@ async def my_memes(
 
 @router.post("/upload")
 async def upload_meme(
-    title: str = Form(""),
+    title: str = Form(...),
     tournament_id: str = Form(...),
     file: UploadFile = File(...),
     user: dict = Depends(get_current_user),
 ):
     """Upload a meme image to a specific tournament. Max 2 per user per tournament."""
+    title = title.strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Meme title is required")
+
     # Check tournament status
     t_result = (
         supabase_admin.table("tournament")

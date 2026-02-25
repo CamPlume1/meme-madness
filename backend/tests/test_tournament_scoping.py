@@ -167,6 +167,32 @@ class TestMemeUploadScoping:
         assert resp.status_code == 422  # Validation error — tournament_id is required
 
     @patch("app.routes.memes.supabase_admin")
+    def test_upload_requires_title(self, mock_sb, authed_client):
+        """Upload with empty title should fail with 400."""
+        client, _ = authed_client
+        import io
+        resp = client.post(
+            "/api/memes/upload",
+            data={"title": "", "tournament_id": "tournament-A"},
+            files={"file": ("test.png", io.BytesIO(b"fake"), "image/png")},
+        )
+        assert resp.status_code == 400
+        assert "title is required" in resp.json()["detail"]
+
+    @patch("app.routes.memes.supabase_admin")
+    def test_upload_rejects_whitespace_only_title(self, mock_sb, authed_client):
+        """Upload with whitespace-only title should fail with 400."""
+        client, _ = authed_client
+        import io
+        resp = client.post(
+            "/api/memes/upload",
+            data={"title": "   ", "tournament_id": "tournament-A"},
+            files={"file": ("test.png", io.BytesIO(b"fake"), "image/png")},
+        )
+        assert resp.status_code == 400
+        assert "title is required" in resp.json()["detail"]
+
+    @patch("app.routes.memes.supabase_admin")
     def test_upload_closed_tournament_rejected(self, mock_sb, authed_client):
         """Cannot submit to a tournament that's not in submission_open."""
         client, _ = authed_client
