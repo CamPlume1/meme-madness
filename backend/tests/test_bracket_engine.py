@@ -341,9 +341,8 @@ class TestHalfAssignment:
         random.shuffle(singles)
 
         bracket_size = next_power_of_2(num_memes)
-        half_capacity = bracket_size // 2
-        half_a_cap = half_capacity // 2
-        half_b_cap = half_capacity - half_a_cap
+        half_a_cap = bracket_size // 2
+        half_b_cap = bracket_size // 2
 
         half_a = []
         half_b = []

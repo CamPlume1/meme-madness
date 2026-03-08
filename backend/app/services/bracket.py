@@ -143,9 +143,8 @@ def seed_bracket(tournament_id: str) -> dict:
     random.shuffle(pairs)
     random.shuffle(singles)
 
-    half_capacity = bracket_size // 2
-    half_a_capacity = half_capacity // 2
-    half_b_capacity = half_capacity - half_a_capacity
+    half_a_capacity = bracket_size // 2
+    half_b_capacity = bracket_size // 2
 
     half_a = []
     half_b = []
