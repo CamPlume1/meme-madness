@@ -614,9 +614,9 @@
 
 .vote-image {
   width: 100%;
-  max-width: 250px;
-  aspect-ratio: 1;
-  object-fit: cover;
+  max-width: 350px;
+  max-height: 400px;
+  object-fit: contain;
   border-radius: var(--radius);
 }
 
@@ -1161,7 +1161,8 @@
   }
 
   .vote-image {
-    max-width: 200px;
+    max-width: 280px;
+    max-height: 320px;
   }
 
   .admin-summary {
